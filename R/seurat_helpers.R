@@ -154,7 +154,7 @@
 
 # Validate Seurat Object Structure
 .validate_seurat <- function(seurat_obj, group_key, gene_symbols, coordinates_key){
-  if (inherits(seurat_obj, "Seurat")){
+  if (!inherits(seurat_obj, "Seurat")){
     stop("Please provide a Seurat Object")
   }
   .validate_gene_symbols(seurat_obj,gene_symbols)
