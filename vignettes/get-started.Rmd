@@ -1,16 +1,33 @@
-# CyteTypeR
+---
+title: "CyteTypeR: Characterization of scRNA-seq cell clusters "
+output:
+  html_document:
+    toc: true
+    toc_depth: '2'
+    df_print: paged
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+
+date: "2025-08-22"
+vignette: "%\\VignetteIndexEntry{Getting Started} %\\VignetteEngine{knitr::rmarkdown}
+  %\\VignetteEncoding{UTF-8}\n"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
 ## Introduction
 
-CyteTypeR is the R version of CyteType, a single‑cell RNA‑seq cluster annnotation using multi-agent workflow <https://github.com/NygenAnalytics/CyteType>. 
-Current version of this package interfaces with Seurat objects after clustering and characterize cell clusters through CyteType API.
+CyteTypeR is the R version of CyteType, a python package for deep characterization of cell clusters from single cell RNA-seq data <https://github.com/NygenAnalytics/CyteType>. Current version of this package interfaces with Seurat objects after clustering and characterize cell clusters through CyteType API.
 
+This vignettte demonstrates a basic workflow using a sample PBMC dataset that has been processed through the standard Seurat analysis pipeline.
 
 ## Installation
-```
+```{r eval=FALSE}
 # Using devtools
 install.packages("devtools")
-
 # Install from GitHub
 library(devtools)
 install_github("NygenAnalytics/CyteTypeR")
@@ -18,7 +35,7 @@ install_github("NygenAnalytics/CyteTypeR")
 ```
 
 ## Quick Start
-```
+```{r eval=FALSE}
 # Load package
 library(CyteTypeR)
 
@@ -42,7 +59,7 @@ results <- CyteTypeR(prepped_data = prepped_data,
 
 ## Pre-processing
 Current version of CyteTypeR works with Seurat objects and requires minimally some basic pre-processing before CyteTypeR can be used.
-``` 
+``` {r eval=FALSE}
 
 # Load libraries ####
 library(dplyr)
@@ -77,8 +94,8 @@ pbmc.markers %>%
 
 ```
 
-## Running CyteTypeR
-``` 
+## Run CyteTypeR
+``` {r eval=FALSE}
 ## Prep data for job submission to cytetype api
 prepped_data <- PrepareCyteTypeR(pbmc,
          pbmc.markers,
