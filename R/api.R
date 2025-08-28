@@ -98,8 +98,8 @@
     # Process based on job status
     if (job_status == "completed") {
       # Try to get results
-      results_resp <- tryCatch({
-        .api_response_helper(job_id, api_url, 'results', auth_token)
+      tryCatch({
+        results_resp <- .api_response_helper(job_id, api_url, 'results', auth_token)
       }, error = function(e) {
         # If results fetch fails, treat as failed job
         return(make_response(
@@ -110,7 +110,7 @@
       })
 
       # Check if we got an error response above
-      if (is.list(results_resp) && !is.null(results_resp$status)) {
+      if (is.list(results_resp) && (results_resp$status == "failed")) {
         return(results_resp)  # Return the error response
       }
 
