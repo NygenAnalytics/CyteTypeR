@@ -1,6 +1,17 @@
 ---
 title: "Configurations"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_depth: '2'
+    df_print: paged
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{My Package Vignette}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ## Configuration
