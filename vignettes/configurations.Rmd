@@ -8,8 +8,9 @@ output:
   rmarkdown::html_vignette:
     toc: true
     toc_depth: 2
+date: "2025-08-28"
 vignette: >
-  %\VignetteIndexEntry{My Package Vignette}
+  %\VignetteIndexEntry{Configurations}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
