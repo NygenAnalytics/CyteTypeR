@@ -7,9 +7,10 @@ Current version of this package interfaces with Seurat objects after clustering 
 
 
 ## Installation
-```{r eval=FALSE}
+```
 # Using devtools
 install.packages("devtools")
+
 # Install from GitHub
 library(devtools)
 install_github("NygenAnalytics/CyteTypeR")
@@ -17,7 +18,7 @@ install_github("NygenAnalytics/CyteTypeR")
 ```
 
 ## Quick Start
-```{r eval=FALSE}
+```
 # Load package
 library(CyteTypeR)
 
@@ -41,7 +42,7 @@ results <- CyteTypeR(prepped_data = prepped_data,
 
 ## Pre-processing
 Current version of CyteTypeR works with Seurat objects and requires minimally some basic pre-processing before CyteTypeR can be used.
-``` {r eval=FALSE}
+``` 
 
 # Load libraries ####
 library(dplyr)
@@ -77,7 +78,7 @@ pbmc.markers %>%
 ```
 
 ## Running CyteTypeR
-``` {r eval=FALSE}
+``` 
 ## Prep data for job submission to cytetype api
 prepped_data <- PrepareCyteTypeR(pbmc,
          pbmc.markers,
