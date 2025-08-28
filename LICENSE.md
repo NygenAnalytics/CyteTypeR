@@ -1,6 +1,6 @@
 # MIT License
 
-Copyright (c) 2025 CyteTypeR authors
+Copyright (c) 2025 Nygen Analytics AB
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## CyteTypeR API
+
+### Academic Use (Free)
+- Rate-limited API access for academic research and education
+- **No rate limits** when using your own LLM
+- Generated data under [CC BY-SA-NC 4.0 (non-commercial)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+
+### Commercial Use & Higher Rate Limits
+- Requires a commercial use license from Nygen Analytics AB
+- Generated data includes commercial rights
+- Contact: contact@nygen.io
+
+### Getting API Access
+1. Academic users: Start with free rate-limited access
+2. Need higher rates or commercial use: contact@nygen.io
