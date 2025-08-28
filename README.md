@@ -2,9 +2,9 @@
 
 ## Introduction
 
-CyteTypeR is the R version of CyteType, a python package for deep characterization of cell clusters from single cell RNA-seq data <https://github.com/NygenAnalytics/CyteType>. Current version of this package interfaces with Seurat objects after clustering and characterize cell clusters through CyteType API.
+CyteTypeR is the R version of CyteType, a single‑cell RNA‑seq cluster annnotation using multi-agent workflow <https://github.com/NygenAnalytics/CyteType>. 
+Current version of this package interfaces with Seurat objects after clustering and characterize cell clusters through CyteType API.
 
-This vignettte demonstrates a basic workflow using a sample PBMC dataset that has been processed through the standard Seurat analysis pipeline.
 
 ## Installation
 ```{r eval=FALSE}
@@ -76,7 +76,7 @@ pbmc.markers %>%
 
 ```
 
-## Run CyteTypeR
+## Running CyteTypeR
 ``` {r eval=FALSE}
 ## Prep data for job submission to cytetype api
 prepped_data <- PrepareCyteTypeR(pbmc,
