@@ -45,7 +45,7 @@ Current version of CyteTypeR works with Seurat objects and the markers table fro
 
 ``` R
 
-# Load libraries ####
+# Load libraries
 library(dplyr)
 library(patchwork)
 library(Matrix)
