@@ -104,8 +104,7 @@
       switch(status,
              "completed" = {
                if (show_progress &&
-                   length(current_cluster_status) > 0 &&
-                   !identical(current_cluster_status, last_cluster_status)) {
+                   length(current_cluster_status) > 0) {
 
                  .display_cluster_status_cli(
                    current_cluster_status,
@@ -122,6 +121,7 @@
                if (!is.list(status_response$result)) {
                  stop(cytetype_api_error("api", paste("Expected list result, got", class(status_response$result))))
                }
+
                return(status_response$result)
              },
 
@@ -140,7 +140,6 @@
                error_msg <- status_response$message %||% "Unknown server error"
                stop(paste("Server error:", error_msg))
              },
-
              "processing" = ,
              "pending" = {
                log_debug("Job {job_id} status: {status}. Waiting {poll_interval}s...")
