@@ -3,6 +3,8 @@
 export(CyteTypeR)
 export(GetResults)
 export(PrepareCyteTypeR)
+importFrom(Matrix,rowSums)
+importFrom(Seurat,AddMetaData)
 importFrom(Seurat,Embeddings)
 importFrom(Seurat,GetAssayData)
 importFrom(dplyr,"%>%")

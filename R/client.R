@@ -17,7 +17,7 @@
       req_headers("Content-Type" = "application/json") |>
       req_timeout(60)
 
-    # Add auth if provided
+    # Add auth token if provided
     if (!is.null(auth_token)) {
       req <- req |> req_auth_bearer_token(auth_token)
     }

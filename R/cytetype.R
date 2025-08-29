@@ -62,7 +62,7 @@
 #' @importFrom dplyr group_by filter slice_head ungroup %>%
 #' @importFrom tidyr pivot_longer
 #' @importFrom stats setNames
-#' @importFrom Seurat Embeddings GetAssayData
+#' @importFrom Seurat Embeddings GetAssayData AddMetaData
 #' @importFrom jsonlite write_json fromJSON
 #' @export
 PrepareCyteTypeR <- function(obj,
@@ -115,7 +115,8 @@ PrepareCyteTypeR <- function(obj,
     clusterMetadata = group_metadata,
     markerGenes = marker_genes,
     visualizationData = visualization_data,
-    expressionData = expression_percentages
+    expressionData = expression_percentages,
+    group_key = group_key
   )
   print("Done!")
   return(prepped_data)
@@ -208,8 +209,17 @@ CyteTypeR <- function(obj,
                       show_progress = TRUE
 ){
   api_url <- api_url %||% .get_default_api_url()
-  prepped_data$studyInfo <- study_context
-  prepped_data$infoTags <- if (is.null(metadata)) list() else metadata
+  prepped_data$studyInfo <- study_context %||% ""
+  prepped_data$infoTags <- metadata %||% list()
+
+  group_key <- prepped_data$group_key
+  prepped_data$group_key <- NULL
+
+  .validate_input_data(prepped_data)
+
+  if (!is.null(llm_configs)){
+    llm_configs <- do.call(LLMModelConfig, llm_configs)
+  }
 
   query_list <- list(
     input_data = prepped_data,
@@ -249,8 +259,15 @@ CyteTypeR <- function(obj,
   )
   # store results
   if (!is.null(result)){
-    # obj$cytetype_annotations <- .transform_results_seurat(result)
-    return(.transform_results_seurat(result))
+
+    transformed_results <- .transform_results_seurat(result)
+
+    obj@misc$cytetype_results <- transformed_results
+    cytetype_ann <- transformed_results$annotation
+
+    obj <- AddMetaData(obj, cytetype_ann, col.name = paste(results_prefix, group_key, sep = "_" ))
+
+    return(obj)
   }
 }
 
@@ -303,7 +320,10 @@ GetResults <- function(job_id = NULL){
                auto_unbox = TRUE,
                pretty = TRUE)
 
-    return(response$data)
+
+    return(.transform_results_seurat(response$data))
+
+
 
   }, error = function(e) {
     stop(paste("Error retrieving results for job {job_id}: ", e$message))
