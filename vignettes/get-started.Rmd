@@ -10,8 +10,10 @@ output:
     toc_depth: 2
 
 date: "2025-08-22"
-vignette: "%\\VignetteIndexEntry{Getting Started} %\\VignetteEngine{knitr::rmarkdown}
-  %\\VignetteEncoding{UTF-8}\n"
+vignette: >
+  %\\VignetteIndexEntry{Getting Started} 
+  %\\VignetteEngine{knitr::rmarkdown}
+  %\\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include=FALSE}

@@ -7,7 +7,7 @@ Current version of this package interfaces with Seurat objects after clustering 
 
 
 ## Installation
-```
+``` R
 # Using devtools
 install.packages("devtools")
 
@@ -17,8 +17,8 @@ install_github("NygenAnalytics/CyteTypeR")
 
 ```
 
-## Quick Start
-```
+## Quick Start Example
+``` R
 # Load package
 library(CyteTypeR)
 
@@ -41,17 +41,18 @@ results <- CyteTypeR(prepped_data = prepped_data,
 ```
 
 ## Pre-processing
-Current version of CyteTypeR works with Seurat objects and requires minimally some basic pre-processing before CyteTypeR can be used.
-``` 
+Current version of CyteTypeR works with Seurat objects and the markers table from ```FindAllMarkers()``` and requires minimally some basic pre-processing before CyteTypeR can be used.
 
-# Load libraries ####
+``` R
+
+# Load libraries
 library(dplyr)
 library(patchwork)
 library(Matrix)
 library(Seurat)
 
 
-# Load the dataset ####
+# Load an example dataset
 pbmc.data <- Read10X(data.dir = "./data/filtered_gene_bc_matrices/hg19/")
 # Initialize the Seurat object with the raw (non-normalized data).
 pbmc <- CreateSeuratObject(counts = pbmc.data, project = "pbmc3k", min.cells = 3, min.features = 200)
@@ -61,16 +62,16 @@ pbmc <- FindVariableFeatures(pbmc, selection.method = "vst", nfeatures = 2000)
 all.genes <- rownames(pbmc)
 pbmc <- ScaleData(pbmc, features = all.genes)
 
-# Cluster the cells and run UMAP #####
+# Cluster the cells and run UMAP 
 pbmc <- FindNeighbors(pbmc, dims = 1:10)
 pbmc <- FindClusters(pbmc, resolution = 0.5)
 
 pbmc <- RunUMAP(pbmc, dims = 1:10)
 
-# Find markers for all Clusters #####
+# Find markers for all Clusters (IMPORTANT: this step is currently required for using CyteTypeR)
 pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE)
 
-# (optional:)
+# Apply filtering criteria for markers
 pbmc.markers %>%
   group_by(cluster) %>%
   dplyr::filter(avg_log2FC > 1)
@@ -78,7 +79,7 @@ pbmc.markers %>%
 ```
 
 ## Running CyteTypeR
-``` 
+``` R
 ## Prep data for job submission to cytetype api
 prepped_data <- PrepareCyteTypeR(pbmc,
          pbmc.markers,
@@ -87,7 +88,7 @@ prepped_data <- PrepareCyteTypeR(pbmc,
          aggregate_metadata = TRUE,
          coordinates_key = "umap")
 
-## Adding metadata on 
+## Adding metadata on submission
 metadata <- list(
   title = 'My scRNA-seq analysis of human pbmc',
   run_label = 'initial_analysis',
@@ -99,5 +100,6 @@ results <- CyteTypeR(prepped_data = prepped_data,
                           study_context = "pbmc blood samples from humans", 
                           metadata = metadata
                           )
+
 
 ```
