@@ -4,6 +4,7 @@
 #'
 #' @importFrom purrr list_rbind map
 #' @importFrom tibble tibble
+#' @importFrom Matrix rowSums
 #'
 # Calculate Expression Percentages by Cluster
 .calculate_pcent <- function(
@@ -166,29 +167,23 @@
 
 # Transform CyteType Results for Seurat Integration
 
-.transform_results_seurat <- function(results = NULL, job_id = NULL, filename = NULL){
+.transform_results_seurat <- function(raw_results = NULL, job_id = NULL, filename = NULL){
   # if (is.null(job_id)){
   #   stop("The job id or the file path for the results file is missing.")
   # }
 
-  if (is.null(results)){
-    filename <- filename %||% paste0('results_', job_id,'.json')
-    raw_results <- fromJSON(filename)
-  } else {
-    raw_results <- results
+  if (is.null(raw_results)){
+      filename <- filename %||% paste0('results_', job_id,'.json')
+      raw_results <- fromJSON(filename)
   }
-  raw_annotations <- raw_results$annotations
 
-  annotation_df <- raw_annotations |>
-    map(~ {
-      latest <- .x$latest
-      if (is.list(latest$annotation)) {
-        ann <- latest$annotation
-      } else {
-        ann <- list()
-      }
-      # Wrap each field in a list to create list-columns
-      tibble(
+  raw_annotations <- raw_results$annotations
+  annotations_list <- list()
+
+  for (clus in 1:length(raw_annotations)){
+    ann <- raw_annotations$clus$latest$annotation
+
+    annotation_df <- list(
         clusterId = list(ann$clusterId %||% ''),
         annotation = list(ann$annotation %||% 'Unknown'),
         ontologyTerm = list(ann$cellOntologyTerm %||% 'Unknown'),
@@ -200,8 +195,9 @@
         missingExpression = list(ann$missingExpression %||% ''),
         unexpectedExpression = list(ann$unexpectedExpression %||% '')
       )
-    }) |>
-    list_rbind()
-  return(annotation_df)
+    annotations_list[[clus]] <- annotation_df
+  }
+
+  return(annotations_list)
 }
 

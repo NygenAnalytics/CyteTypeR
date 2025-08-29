@@ -15,6 +15,7 @@ Imports:
     httr2,
     jsonlite,
     logger,
+    Matrix,
     purrr,
     Seurat,
     tibble,
