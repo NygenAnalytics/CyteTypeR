@@ -173,15 +173,15 @@
   # }
 
   if (is.null(raw_results)){
-      filename <- filename %||% paste0('results_', job_id,'.json')
-      raw_results <- fromJSON(filename)
+      filename <- filename %||% paste0('cytetypeR_results_', job_id,'.json')
+      raw_results <- read_json(filename)
   }
 
   raw_annotations <- raw_results$annotations
   annotations_list <- list()
 
-  for (clus in 1:length(raw_annotations)){
-    ann <- raw_annotations$clus$latest$annotation
+  for (a in raw_annotations){
+    ann <- a$latest$annotation
 
     annotation_df <- list(
         clusterId = list(ann$clusterId %||% ''),
@@ -195,7 +195,7 @@
         missingExpression = list(ann$missingExpression %||% ''),
         unexpectedExpression = list(ann$unexpectedExpression %||% '')
       )
-    annotations_list[[clus]] <- annotation_df
+    annotations_list[[ann$clusterId]] <- annotation_df
   }
 
   return(annotations_list)
