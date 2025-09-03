@@ -265,12 +265,12 @@ CyteTypeR <- function(obj,
     transformed_results <- .transform_results_seurat(result,cluster_map = prepped_data$clusterLabels)
 
     obj@misc$cytetype_results <- transformed_results
-    cytetype_ann <- transformed_results$annotation
 
     ann_colname <- paste(results_prefix, group_key, sep = "_" )
     obj <- AddMetaData(obj, group_key, col.name = ann_colname)
     cluster_ids <- as.character(obj@meta.data[[ann_colname]])
-    obj[[ann_colname]] <- transformed_results[cluster_ids,"annotation"]
+    obj@meta.data[[ann_colname]] <- transformed_results[cluster_ids,"annotation"]
+
 
     return(obj)
   }
@@ -326,7 +326,7 @@ GetResults <- function(job_id = NULL){
 
     if (!is.null(response$data)){
 
-      transformed_results <- .transform_results_seurat(response$data, cluster_map = cluster_map)
+      transformed_results <- .transform_results_seurat(response$data)
 
       print("Results table retrieved")
     }
