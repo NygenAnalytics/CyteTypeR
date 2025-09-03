@@ -81,10 +81,13 @@ metadata <- list(
 
 
 ## Submit job to cytetype
-results <- CyteTypeR(prepped_data = prepped_data, 
+pbmc.results <- CyteTypeR(prepped_data = prepped_data, 
                           study_context = "pbmc blood samples from humans", 
                           metadata = metadata
                           )
 
 
 ```
+
+## CyteType Results
+CyteType results are saved under "misc" in the seurat object e.g.```seurat_obj@misc$cytetype_results```
