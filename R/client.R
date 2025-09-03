@@ -73,7 +73,7 @@
     log_info("Report (updates automatically) available at: {report_url}")
   }
 
-  log_info("If disconnected, retrieve results with: GetResults(job_details)")
+  log_info("If disconnected, retrieve results with: GetResults()")
 
   # Initialize tracking
 

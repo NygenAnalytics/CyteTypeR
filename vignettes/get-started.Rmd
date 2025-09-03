@@ -1,24 +1,21 @@
 ---
-title: "CyteTypeR: Characterization of scRNA-seq cell clusters "
-output:
-  html_document:
-    toc: true
-    toc_depth: '2'
-    df_print: paged
+title: "CyteTypeR: Characterization of scRNA-seq cell clusters"
+output: 
   rmarkdown::html_vignette:
     toc: true
     toc_depth: 2
-
-date: "2025-08-22"
+    df_print: paged
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    df_print: paged
+date: "`r Sys.Date()`"
 vignette: >
-  %\\VignetteIndexEntry{Getting Started} 
-  %\\VignetteEngine{knitr::rmarkdown}
-  %\\VignetteEncoding{UTF-8}
+  %\VignetteIndexEntry{Getting Started}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
 
 ## Introduction
 

@@ -2,7 +2,7 @@
 #'
 #'
 #'
-#' @importFrom purrr list_rbind map
+#' @importFrom purrr list_rbind map_dfr
 #' @importFrom tibble tibble
 #' @importFrom Matrix rowSums
 #'
@@ -167,37 +167,39 @@
 
 # Transform CyteType Results for Seurat Integration
 
-.transform_results_seurat <- function(raw_results = NULL, job_id = NULL, filename = NULL){
+.transform_results_seurat <- function(raw_results = NULL, job_id = NULL, filename = NULL, cluster_map = NULL){
   # if (is.null(job_id)){
   #   stop("The job id or the file path for the results file is missing.")
   # }
 
-  if (is.null(raw_results)){
-      filename <- filename %||% paste0('results_', job_id,'.json')
-      raw_results <- fromJSON(filename)
-  }
+  # if (is.null(raw_results)){
+  #     filename <- filename %||% paste0('cytetypeR_results_', job_id,'.json')
+  #     raw_results <- read_json(filename)
+  # }
 
   raw_annotations <- raw_results$annotations
   annotations_list <- list()
 
-  for (clus in 1:length(raw_annotations)){
-    ann <- raw_annotations$clus$latest$annotation
+  df <- map_dfr(raw_annotations, ~ {
+    ann <- .x$latest$annotation
+    data.frame(
+      clusterId = as.character(cluster_map[ann$clusterId] %||% ann$clusterId),
+      annotation = as.character(ann$annotation %||% 'Unknown'),
+      ontologyTerm = as.character(ann$cellOntologyTerm %||% 'Unknown'),
+      granularAnnotation = as.character(ann$granularAnnotation %||% ''),
+      cellState = as.character(ann$cellState %||% ''),
+      justification = as.character(ann$justification %||% ''),
+      supportingMarkers = paste(as.character(ann$supportingMarkers %||% ''), collapse = "; "),
+      conflictingMarkers = paste(as.character(ann$conflictingMarkers %||% ''), collapse = "; "),
+      missingExpression = as.character(ann$missingExpression %||% ''),
+      unexpectedExpression = as.character(ann$unexpectedExpression %||% ''),
+      stringsAsFactors = FALSE
+    )
+  })
 
-    annotation_df <- list(
-        clusterId = list(ann$clusterId %||% ''),
-        annotation = list(ann$annotation %||% 'Unknown'),
-        ontologyTerm = list(ann$cellOntologyTerm %||% 'Unknown'),
-        granularAnnotation = list(ann$granularAnnotation %||% ''),
-        cellState = list(ann$cellState %||% ''),
-        justification = list(ann$justification %||% ''),
-        supportingMarkers = list(ann$supportingMarkers %||% ''),
-        conflictingMarkers = list(ann$conflictingMarkers %||% ''),
-        missingExpression = list(ann$missingExpression %||% ''),
-        unexpectedExpression = list(ann$unexpectedExpression %||% '')
-      )
-    annotations_list[[clus]] <- annotation_df
-  }
+  rownames(df) <- df$clusterId
 
-  return(annotations_list)
+
+  return(df)
 }
 
