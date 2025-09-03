@@ -8,7 +8,7 @@ GetResults(job_id = NULL)
 }
 \arguments{
 \item{job_id}{Character string specifying the CyteType job ID. If \code{NULL},
-attempts to read from saved job details file (currently commented out).
+attempts to read from saved job details file (currently WIP).
 Default is \code{NULL}.}
 }
 \value{

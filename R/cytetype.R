@@ -16,7 +16,7 @@
 #'   per cluster to include (filtered by avg_log2FC > 1). Default is 50.
 #' @param aggregate_metadata Logical indicating whether to aggregate metadata
 #'   across cells within each cluster. Default is `TRUE`.
-#' @param min_percentage Numeric threshold for minimum percentage (currently unused).
+#' @param min_percentage Numeric threshold for minimum percentage.
 #'   Default is 10.
 #' @param pcent_batch_size Integer specifying batch size for expression percentage
 #'   calculations. Default is 2000.
@@ -118,6 +118,9 @@ PrepareCyteTypeR <- function(obj,
     expressionData = expression_percentages,
     group_key = group_key
   )
+  # Store query
+  obj@misc$query <- prepped_data
+
   print("Done!")
   return(prepped_data)
 }
@@ -247,7 +250,6 @@ CyteTypeR <- function(obj,
     write_json(job_details, path = paste0('job_details_', job_id, '.json'), auto_unbox = TRUE, pretty = TRUE)
 
   }
-
   # poll for results
   result <- .poll_for_results(
     job_id,
@@ -260,12 +262,15 @@ CyteTypeR <- function(obj,
   # store results
   if (!is.null(result)){
 
-    transformed_results <- .transform_results_seurat(result)
+    transformed_results <- .transform_results_seurat(result,cluster_map = prepped_data$clusterLabels)
 
     obj@misc$cytetype_results <- transformed_results
-    cytetype_ann <- transformed_results$annotation
 
-    obj <- AddMetaData(obj, cytetype_ann, col.name = paste(results_prefix, group_key, sep = "_" ))
+    ann_colname <- paste(results_prefix, group_key, sep = "_" )
+    obj <- AddMetaData(obj, group_key, col.name = ann_colname)
+    cluster_ids <- as.character(obj@meta.data[[ann_colname]])
+    obj@meta.data[[ann_colname]] <- transformed_results[cluster_ids,"annotation"]
+
 
     return(obj)
   }
@@ -276,9 +281,8 @@ CyteTypeR <- function(obj,
 #' @description
 #' Retrieves and saves results from a completed CyteType analysis job using
 #' the job ID. Results are saved as a JSON file for further analysis.
-#'
 #' @param job_id Character string specifying the CyteType job ID. If `NULL`,
-#'   attempts to read from saved job details file (currently commented out).
+#'   attempts to read from saved job details file (currently WIP).
 #'   Default is `NULL`.
 #'
 #' @return List containing the analysis results data structure with cell type
@@ -320,13 +324,16 @@ GetResults <- function(job_id = NULL){
                auto_unbox = TRUE,
                pretty = TRUE)
 
+    if (!is.null(response$data)){
 
-    return(.transform_results_seurat(response$data))
+      transformed_results <- .transform_results_seurat(response$data)
 
-
+      print("Results table retrieved")
+    }
+      return(transformed_results)
 
   }, error = function(e) {
-    stop(paste("Error retrieving results for job {job_id}: ", e$message))
+    stop(paste("Error retrieving results for job", {job_id}, ": ", e$message))
   })
 
 }

@@ -35,7 +35,7 @@ per cluster to include (filtered by avg_log2FC > 1). Default is 50.}
 \item{aggregate_metadata}{Logical indicating whether to aggregate metadata
 across cells within each cluster. Default is \code{TRUE}.}
 
-\item{min_percentage}{Numeric threshold for minimum percentage (currently unused).
+\item{min_percentage}{Numeric threshold for minimum percentage.
 Default is 10.}
 
 \item{pcent_batch_size}{Integer specifying batch size for expression percentage
