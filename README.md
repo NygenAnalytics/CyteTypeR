@@ -38,3 +38,10 @@ results <- CyteTypeR(prepped_data = prepped_data,
                           )
 ```
 
+## Documentations
+- [Get started](docs/get-started.md)
+- [Configurations](docs/configurations.md)
+
+## License
+
+Licensed under CC BY‑NC‑SA 4.0 — see: [LICENSE.md](LICENSE.md)
