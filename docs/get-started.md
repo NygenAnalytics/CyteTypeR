@@ -112,7 +112,7 @@ INFO [2025-09-03 13:59:55] Job 6e081560-864c-492a-a1aa-138fa547f0fe completed su
 ```
 ### Results table
 CyteType results are saved under "misc" in the seurat object e.g.```seurat_obj@misc$cytetype_results```
-Example of the results table: 
+Example of the results table: [cytetypeR_table_export.tsv](inst/cytetypeR_table_export.tsv)
 ```
 View(pbmc_small@misc[["cytetype_results"]])
 ```
