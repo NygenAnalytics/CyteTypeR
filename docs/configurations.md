@@ -17,7 +17,7 @@ llm_configs=list(
   )
 )
 
-
+# Example of usage:
 result <- CyteTypeR(obj = pbmc, 
                          prepped_data = prepped_data,
                          study_context = "pbmc blood samples from humans",
@@ -25,3 +25,4 @@ result <- CyteTypeR(obj = pbmc,
                          llm_configs = llm_configs
 )
 ```
+
