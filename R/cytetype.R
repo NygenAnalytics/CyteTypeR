@@ -267,9 +267,15 @@ CyteTypeR <- function(obj,
     obj@misc$cytetype_results <- transformed_results
 
     ann_colname <- paste(results_prefix, group_key, sep = "_" )
-    obj <- AddMetaData(obj, group_key, col.name = ann_colname)
-    cluster_ids <- as.character(obj@meta.data[[ann_colname]])
-    obj@meta.data[[ann_colname]] <- transformed_results[cluster_ids,"annotation"]
+    onto_colname <- paste("cytetype_cell_ontology", group_key, sep = "_")
+
+    cluster_ann_map <- setNames(transformed_results$annotation,
+                                transformed_results$clusterId)
+    cluster_onto_map <- setNames(transformed_results$ontologyTerm,
+                                transformed_results$clusterId)
+
+    obj@meta.data[[ann_colname]] <- factor(cluster_ann_map[as.vector(obj@meta.data[[group_key]])])
+    obj@meta.data[[onto_colname]] <- factor(cluster_onto_map[as.vector(obj@meta.data[[group_key]])])
 
 
     return(obj)
