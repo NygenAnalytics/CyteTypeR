@@ -2,7 +2,7 @@
 .onLoad <- function(libname, pkgname) {
   # Set default configuration options
   options(
-    cytetype.default.api.url = "https://nygen-labs--cytetype-api.modal.run",
+    cytetype.default.api.url = "https://nygen-labs-prod--cytetype-api.modal.run",
     cytetype.default.poll.interval = 10L,
     cytetype.default.timeout = 7200L
   )
@@ -14,7 +14,7 @@
 
 # Get Default API URL
 .get_default_api_url <- function() {
-  getOption("cytetype.default.api.url", "https://nygen-labs--cytetype-api.modal.run")
+  getOption("cytetype.default.api.url", "https://nygen-labs-prod--cytetype-api.modal.run")
 }
 
 # Get Default Poll Interval
