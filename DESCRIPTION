@@ -1,7 +1,9 @@
 Package: CyteTypeR
 Title: CyteType for R
 Version: 0.0.1
-Description: CyteTyper is the R version of CyteType python package.
+Description: CyteTyper is the R version of CyteType python package.'
+Authors@R: 
+    person("Nygen Analytics AB", , ,"contact@nygen.io", role = c("aut", "cre"))
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
