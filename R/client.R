@@ -68,9 +68,9 @@
 
   # Info for auth token uses
   if (!is.null(auth_token)) {
-    log_info("Token secured report (updates automatically): {report_url}")
+    log_info("Token secured report (updates automatically): \n{report_url}")
   } else {
-    log_info("Report (updates automatically) available at: {report_url}")
+    log_info("Report (updates automatically) available at: \n{report_url}")
   }
 
   log_info("If disconnected, retrieve results with: GetResults()")
