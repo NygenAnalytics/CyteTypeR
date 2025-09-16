@@ -6,13 +6,11 @@
 
 # For one LLM configuration:
 llm_configs <- list(
-  list(
     provider = "openai",
     name = "gpt-4o-mini",
     apiKey = "your-openai-key",
     baseUrl = "https://api.openai.com/v1", 
     modelSettings = list(temperature = 0.0, max_tokens = 4096L)
-  )
 )
 
 
