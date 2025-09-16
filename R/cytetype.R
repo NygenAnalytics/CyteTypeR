@@ -221,7 +221,9 @@ CyteTypeR <- function(obj,
   .validate_input_data(prepped_data)
 
   if (!is.null(llm_configs)){
-    llm_configs <- do.call(LLMModelConfig, llm_configs)
+    llm_configs <- lapply(llm_configs, function(config) {
+      do.call(LLMModelConfig, config)
+    })
   }
 
   query_list <- list(
