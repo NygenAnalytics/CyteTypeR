@@ -32,7 +32,7 @@ metadata <- list(
   run_label = 'initial_analysis',
   experiment_name: 'pbmc_human_samples_study')
 
-results <- CyteTypeR(obj=seurat_obj,
+results <- CyteTypeR(obj=pbmc,
                           prepped_data = prepped_data, 
                           study_context = "pbmc blood samples from humans", 
                           metadata = metadata
