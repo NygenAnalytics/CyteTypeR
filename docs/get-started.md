@@ -1,6 +1,8 @@
 # Get Started
 Steps for a basic CyteType job to get started using a sample pbmc dataset from 10X Genomics as an example.
 
+**For AnnData or the original python client version, check out: [CyteType](https://github.com/NygenAnalytics/CyteType)**
+
 ## Quick Start Example
 ``` R
 # Load package
