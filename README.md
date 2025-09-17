@@ -1,7 +1,9 @@
 # CyteTypeR
 
-CyteTypeR is the R version of CyteType, a single‑cell RNA‑seq cluster annnotation using multi-agent workflow <https://github.com/NygenAnalytics/CyteType>. 
-Current version of this package interfaces with Seurat objects after clustering and characterize cell clusters through CyteType API.
+CyteTypeR is the R version of CyteType, a single‑cell RNA‑seq cluster annnotation using multi-agent workflow [CyteType](https://github.com/NygenAnalytics/CyteType). 
+Current version of this package interfaces with **Seurat objects** after clustering and characterize cell clusters through CyteType API.
+
+**For AnnData .h5ad, check out the python client: [CyteType](https://github.com/NygenAnalytics/CyteType)**
 
 
 ## Installation
