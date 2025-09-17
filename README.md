@@ -30,7 +30,7 @@ prepped_data <- PrepareCyteTypeR(pbmc,
 metadata <- list(
   title = 'My scRNA-seq analysis of human pbmc',
   run_label = 'initial_analysis',
-  experiment_name: 'pbmc_human_samples_study')
+  experiment_name = 'pbmc_human_samples_study')
 
 results <- CyteTypeR(obj=pbmc,
                           prepped_data = prepped_data, 
