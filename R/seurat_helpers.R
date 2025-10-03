@@ -165,6 +165,14 @@
   }
 }
 
+
+.validate_marker_table <- function(marker_table){
+  # check if marker table has genes
+  # check if marker table has clusters
+  # check if marker table had logfold, scores etc to order by
+  # if cant sort/order, skip and take first n_top_genes that was specified
+}
+
 # Transform CyteType Results for Seurat Integration
 
 .transform_results_seurat <- function(raw_results = NULL, job_id = NULL, filename = NULL, cluster_map = NULL){

@@ -77,6 +77,7 @@ PrepareCyteTypeR <- function(obj,
                              max_cells_per_group = 1000
 ){
   .validate_seurat(obj, group_key, gene_symbols, coordinates_key)
+  # .validate_marker_table(marker_table)
 
   sorted_clusters <- sort(unique(obj[[group_key, drop = TRUE]]))
   cluster_map <- setNames(as.character(1:length(sorted_clusters)), sorted_clusters)
@@ -89,6 +90,8 @@ PrepareCyteTypeR <- function(obj,
 
   } else{group_metadata <- list()
   }
+  print(paste("Preparing marker genes with top",n_top_genes,"genes..."))
+
   marker_genes <- marker_table %>%
     group_by(cluster) %>%
     dplyr::filter(avg_log2FC > 1) %>%
@@ -242,7 +245,13 @@ CyteTypeR <- function(obj,
   }
 
   # Job submission
-  job_id <- .submit_job(query_list, api_url, auth_token)
+  tryCatch({
+    job_id <- .submit_job(query_list, api_url, auth_token)
+    },
+    error = function(e) {
+      stop("Job submission failed: ", conditionMessage(e))
+    }
+  )
 
   # Save job details
   report_url <- file.path(api_url, 'report',job_id)

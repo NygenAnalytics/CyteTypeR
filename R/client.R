@@ -2,7 +2,7 @@
 .submit_job <- function(payload, api_url, auth_token = NULL){
 
   submit_url <- file.path(api_url, "annotate")
-  log_info("Submitting job to {submit_url}")
+  log_info("Submitting job to API {api_url}")
 
   tryCatch({
     # Validate inputs
