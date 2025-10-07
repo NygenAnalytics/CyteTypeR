@@ -243,6 +243,8 @@ CyteTypeR <- function(obj,
   if (save_query){
     write_json(query_list, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
   }
+  ## NA value check on all data before submitting job
+
 
   # Job submission
   tryCatch({

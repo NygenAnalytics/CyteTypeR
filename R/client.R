@@ -13,7 +13,7 @@
     # Build request
     req <- request(submit_url) |>
       req_method("POST") |>
-      req_body_json(payload) |>
+      req_body_json(payload, na = "string") |>
       req_headers("Content-Type" = "application/json") |>
       req_timeout(60)
 

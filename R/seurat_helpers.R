@@ -171,6 +171,7 @@
   # check if marker table has clusters
   # check if marker table had logfold, scores etc to order by
   # if cant sort/order, skip and take first n_top_genes that was specified
+
 }
 
 # Transform CyteType Results for Seurat Integration
