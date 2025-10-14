@@ -3,7 +3,7 @@
 
 # Visuals for cluster progress status
 
-.display_cluster_status_cli <- function(cluster_status, job_id, is_final = FALSE, spinner_frame = 0) {
+.display_cluster_status_cli <- function(cluster_status, is_final = FALSE, spinner_frame) {
   if (length(cluster_status) == 0) return()
 
   # Status symbols and colors

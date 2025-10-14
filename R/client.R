@@ -2,7 +2,7 @@
 .submit_job <- function(payload, api_url, auth_token = NULL){
 
   submit_url <- file.path(api_url, "annotate")
-  log_info("Submitting job to {submit_url}")
+  log_info("Submitting job to API {api_url}")
 
   tryCatch({
     # Validate inputs
@@ -13,7 +13,7 @@
     # Build request
     req <- request(submit_url) |>
       req_method("POST") |>
-      req_body_json(payload) |>
+      req_body_json(payload, na = "string") |>
       req_headers("Content-Type" = "application/json") |>
       req_timeout(60)
 
@@ -206,7 +206,7 @@
   for (i in seq_len(duration * 2)) {
     Sys.sleep(0.5)
     if (show_progress){
-      .display_cluster_status_cli(cluster_status,is_final=FALSE,i)
+      .display_cluster_status_cli(cluster_status, is_final=FALSE, spinner_frame=i)
     }
 
   }

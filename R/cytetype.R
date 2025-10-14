@@ -81,6 +81,8 @@ PrepareCyteTypeR <- function(obj,
   sorted_clusters <- sort(unique(obj[[group_key, drop = TRUE]]))
   cluster_map <- setNames(as.character(1:length(sorted_clusters)), sorted_clusters)
 
+  .validate_marker_table(marker_table,sorted_clusters)
+
   if (aggregate_metadata){
     print("Aggregating metadata...")
     group_metadata <- .aggregate_metadata(obj,group_key)
@@ -89,6 +91,8 @@ PrepareCyteTypeR <- function(obj,
 
   } else{group_metadata <- list()
   }
+  print(paste("Preparing marker genes with top",n_top_genes,"genes..."))
+
   marker_genes <- marker_table %>%
     group_by(cluster) %>%
     dplyr::filter(avg_log2FC > 1) %>%
@@ -240,9 +244,17 @@ CyteTypeR <- function(obj,
   if (save_query){
     write_json(query_list, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
   }
+  ## NA value check on all data before submitting job
+
 
   # Job submission
-  job_id <- .submit_job(query_list, api_url, auth_token)
+  tryCatch({
+    job_id <- .submit_job(query_list, api_url, auth_token)
+    },
+    error = function(e) {
+      stop("Job submission failed: ", conditionMessage(e))
+    }
+  )
 
   # Save job details
   report_url <- file.path(api_url, 'report',job_id)
