@@ -77,10 +77,11 @@ PrepareCyteTypeR <- function(obj,
                              max_cells_per_group = 1000
 ){
   .validate_seurat(obj, group_key, gene_symbols, coordinates_key)
-  # .validate_marker_table(marker_table)
 
   sorted_clusters <- sort(unique(obj[[group_key, drop = TRUE]]))
   cluster_map <- setNames(as.character(1:length(sorted_clusters)), sorted_clusters)
+
+  .validate_marker_table(marker_table,sorted_clusters)
 
   if (aggregate_metadata){
     print("Aggregating metadata...")

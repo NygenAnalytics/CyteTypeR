@@ -206,7 +206,7 @@
   for (i in seq_len(duration * 2)) {
     Sys.sleep(0.5)
     if (show_progress){
-      .display_cluster_status_cli(cluster_status,is_final=FALSE,i)
+      .display_cluster_status_cli(cluster_status, is_final=FALSE, spinner_frame=i)
     }
 
   }

@@ -15,7 +15,7 @@
 ){
   gene_names <- rownames(seurat_obj)
   clusters <- seurat_obj[[group_key]][[group_key]]
-  unique_clusters <- levels(clusters)
+  unique_clusters <- unique(clusters)
 
   pcent <- list()
   n_genes <- dim(seurat_obj)[1]
@@ -166,12 +166,42 @@
 }
 
 
-.validate_marker_table <- function(marker_table){
-  # check if marker table has genes
-  # check if marker table has clusters
-  # check if marker table had logfold, scores etc to order by
-  # if cant sort/order, skip and take first n_top_genes that was specified
+.validate_marker_table <- function(marker_table, sorted_clusters){
+  log_info("Checking markers table...")
+  df_like_classes <- c("data.frame", "tbl_df", "tbl", "data.table")
+  if (inherits(marker_table, df_like_classes)){
+    log_info(paste("Provided markers data is a dataframe", cli::symbol$tick))
+  }
 
+  if (any(is.na(marker_table))){
+    log_info("NA value(s) found in the table")
+  }
+  else{ log_info(paste("No NA values", cli::symbol$tick))}
+
+  table_cols <- names(marker_table)
+  if ("cluster" %in% table_cols){
+    log_info(paste("'cluster' column found in marker table", cli::symbol$tick))
+  }
+  else{log_info("cluster column not found in marker table, rename your column to 'cluster' if its name is different" )}
+
+  # gene symbol column exist?
+  # has gene symbols?
+  if ("gene" %in% table_cols){
+    gene_sym_pattern <- "^[A-Z]([A-Z0-9-]+|[a-z0-9-]+)$"
+    if (is.null(grepl(gene_sym_pattern,marker_table$gene))){
+      log_warn("Not gene symbols?")
+    }
+    else {log_info(paste("Found gene symbols", cli::symbol$tick))}
+  }
+  # cluster labels == seurat obj labels?
+  if (setequal(sorted_clusters, as.vector(marker_table$cluster))){
+    log_info(paste("Correct cluster labels", cli::symbol$tick))
+  }
+  else{
+    log_error("Please check if cluster labels are consistent between marker table and seurat obj!")
+  }
+
+  log_info(paste("Markers check: done", cli::symbol$tick))
 }
 
 # Transform CyteType Results for Seurat Integration
