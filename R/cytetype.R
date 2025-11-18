@@ -248,13 +248,12 @@ CyteTypeR <- function(obj,
 
 
   # Job submission
-  tryCatch({
-    job_id <- .submit_job(query_list, api_url, auth_token)
-    },
-    error = function(e) {
-      stop("Job submission failed: ", conditionMessage(e))
-    }
-  )
+
+  job_id <- .submit_job(query_list, api_url, auth_token)
+  if (is.na(job_id)) {
+    stop("Job submission failed.")
+  }
+
 
   # Save job details
   report_url <- file.path(api_url, 'report',job_id)
