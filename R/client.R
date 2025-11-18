@@ -69,8 +69,10 @@
   # Info for auth token uses
   if (!is.null(auth_token)) {
     log_info("Token secured report (updates automatically): \n{report_url}")
+    cli::cli_text("{.url {report_url}}")
   } else {
-    log_info("Report (updates automatically) available at: \n{report_url}")
+    log_info("Report (updates automatically) available at: \n")
+    cli::cli_text("{.url {report_url}}")
   }
 
   log_info("If disconnected, retrieve results with: GetResults()")
