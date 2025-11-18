@@ -59,7 +59,7 @@
 #' }
 #'
 #' @importFrom logger log_info log_debug log_error log_warn
-#' @importFrom dplyr group_by filter slice_head ungroup %>%
+#' @importFrom dplyr group_by filter slice_head ungroup arrange desc %>%
 #' @importFrom tidyr pivot_longer
 #' @importFrom stats setNames
 #' @importFrom Seurat Embeddings GetAssayData AddMetaData
@@ -95,11 +95,15 @@ PrepareCyteTypeR <- function(obj,
 
   marker_genes <- marker_table %>%
     group_by(cluster) %>%
-    dplyr::filter(avg_log2FC > 1) %>%
+    arrange(desc(avg_log2FC)) %>%
     slice_head(n = n_top_genes) %>%
     ungroup() %>%
     {split(.$gene, .$cluster)}
   names(marker_genes) <- cluster_map[names(marker_genes)]
+
+  if (any(sapply(marker_genes, function(x) !is.vector(x) || length(x) < 5))) {
+    stop("Invalid marker genes, some clusters have fewer than 5 markers")
+  }
 
   print("Preparing visualisation data...")
   visualization_data <- list(
