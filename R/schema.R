@@ -82,6 +82,18 @@ LLMModelConfig <- function(provider,
   return(TRUE)
 }
 
+.prepare_query_for_json <- function(query_list) {
+  # Convert LLMModelConfig objects to plain lists
+  if (!is.null(query_list$llm_configs)) {
+    query_list$llm_configs <- lapply(query_list$llm_configs, function(config) {
+      obj_list <- unclass(config)
+      # Remove NULL values
+      obj_list[!sapply(obj_list, is.null)]
+    })
+  }
+  return(query_list)
+}
+
 # Check AWS Credentials
 .check_aws_credentials <- function(obj) {
   # If apiKey is provided, validation passes
