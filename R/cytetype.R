@@ -245,8 +245,9 @@ CyteTypeR <- function(obj,
     llm_configs = llm_configs
   )
 
+  query_for_json <- .prepare_query_for_json(query_list)
+
   if (save_query){
-    query_for_json <- .prepare_query_for_json(query_list)
     write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
   }
   ## NA value check on all data before submitting job
