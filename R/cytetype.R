@@ -246,14 +246,15 @@ CyteTypeR <- function(obj,
   )
 
   if (save_query){
-    write_json(query_list, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
+    query_for_json <- .prepare_query_for_json(query_list)
+    write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
   }
   ## NA value check on all data before submitting job
 
 
   # Job submission
 
-  job_id <- .submit_job(query_list, api_url, auth_token)
+  job_id <- .submit_job(query_for_json, api_url, auth_token)
   if (is.na(job_id)) {
     stop("Job submission failed.")
   }
@@ -269,10 +270,6 @@ CyteTypeR <- function(obj,
     auth_token = auth_token
   )
 
-  if (!is.null(job_details)){
-    write_json(job_details, path = paste0('job_details_', job_id, '.json'), auto_unbox = TRUE, pretty = TRUE)
-
-  }
   # poll for results
   result <- .poll_for_results(
     job_id,
