@@ -154,6 +154,8 @@ PrepareCyteTypeR <- function(obj,
 #'   (in seconds). Default is 30.
 #' @param timeout_seconds Integer specifying maximum wait time for job completion
 #'   (in seconds). Default is 1200 (20 minutes).
+#' @param n_parallel_clusters Number of parallel requests to make to the model. Maximum is 50. Note than high values can lead to rate limit errors.
+
 #' @param api_url Optional character string specifying custom API URL.
 #'   If `NULL`, uses default URL. Default is `NULL`.
 #' @param save_query Logical indicating whether to save the query as JSON file.
@@ -253,12 +255,10 @@ CyteTypeR <- function(obj,
 
 
   # Job submission
-
   job_id <- .submit_job(query_for_json, api_url, auth_token)
   if (is.na(job_id)) {
     stop("Job submission failed.")
   }
-
 
   # Save job details
   report_url <- file.path(api_url, 'report',job_id)
@@ -287,15 +287,19 @@ CyteTypeR <- function(obj,
     obj@misc$cytetype_results <- transformed_results
 
     ann_colname <- paste(results_prefix, group_key, sep = "_" )
-    onto_colname <- paste("cytetype_cell_ontology", group_key, sep = "_")
+    onto_colname <- paste(results_prefix, "ontologyTerm", group_key, sep = "_")
+    ontoID_colname <- paste(results_prefix, "ontologyID", group_key, sep = "_")
 
     cluster_ann_map <- setNames(transformed_results$annotation,
                                 transformed_results$clusterId)
-    cluster_onto_map <- setNames(transformed_results$ontologyTerm,
+    cluster_onto_map <- setNames(transformed_results$ontologyTermName,
                                 transformed_results$clusterId)
+    cluster_onto_id_map <- setNames(transformed_results$ontologyTerm,
+                                    transformed_results$clusterId)
 
     obj@meta.data[[ann_colname]] <- factor(cluster_ann_map[as.vector(obj@meta.data[[group_key]])])
     obj@meta.data[[onto_colname]] <- factor(cluster_onto_map[as.vector(obj@meta.data[[group_key]])])
+    obj@meta.data[[ontoID_colname]] <- factor(cluster_onto_id_map[as.vector(obj@meta.data[[group_key]])])
 
 
     return(obj)
@@ -336,6 +340,11 @@ CyteTypeR <- function(obj,
 #' @importFrom jsonlite write_json
 #' @export
 GetResults <- function(job_id = NULL){
+
+  if (is.null(job_id)){
+    stop("Please provide the job_id for your CyteType run.")
+  }
+
   tryCatch({
     # if (is.null(job_id)){
     #   job_details <- fromJSON(paste0('job_details_', job_id, '.json'))
