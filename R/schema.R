@@ -104,10 +104,12 @@ LLMModelConfig <- function(provider,
   }
 
   # Clear saved job_details from query for job submission
-  mask_job_details <- query_list$prepped_data[!endsWith(names(query_list$prepped_data), 'jobDetails')]
+  mask_job_details <- !endsWith(names(query_list$input_data), 'jobDetails')
+
+  query_list$input_data <- query_list$input_data[mask_job_details]
 
 
-  return(query_list[mask_job_details])
+  return(query_list)
 }
 
 # Check AWS Credentials
