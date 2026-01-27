@@ -139,7 +139,7 @@ InputData <- function(studyInfo = "",
                       markerGenes = list(),
                       visualizationData = NULL,
                       expressionData = list(),
-                      nParallelClusters = integer()) {
+                      nParallelClusters = numeric()) {
 
   # Create the object
   obj <- list(
@@ -338,6 +338,7 @@ get_example_input_data <- function() {
       )
     ),
 
-    nParallelClusters = 2
+    nParallelClusters = 5
+
   )
 }
