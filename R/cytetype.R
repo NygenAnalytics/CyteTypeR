@@ -303,9 +303,9 @@ CyteTypeR <- function(obj,
 
     cluster_ann_map <- setNames(transformed_results$annotation,
                                 transformed_results$clusterId)
-    cluster_onto_map <- setNames(transformed_results$ontologyTermName,
+    cluster_onto_map <- setNames(transformed_results$ontologyTerm,
                                 transformed_results$clusterId)
-    cluster_onto_id_map <- setNames(transformed_results$ontologyTerm,
+    cluster_onto_id_map <- setNames(transformed_results$ontologyTermID,
                                     transformed_results$clusterId)
 
     obj@meta.data[[ann_colname]] <- factor(cluster_ann_map[as.vector(obj@meta.data[[group_key]])])
