@@ -1,5 +1,16 @@
 # Valid LLM Provider Names
-LLM_PROVIDERS <- c("google", "openai", "anthropic", "groq", "mistral", "openrouter", "bedrock")
+LLM_PROVIDERS <- c("anthropic",
+                   "bedrock",
+                   "fireworks",
+                   "google",
+                   "groq",
+                   "huggingface",
+                   "mistral",
+                   "openai",
+                   "openrouter",
+                   "vertex",
+                   "xai"
+)
 
 # Valid Agent Type Names
 AGENT_TYPES <- c("contextualizer", "annotator", "reviewer", "summarizer", "clinician", "chat")
@@ -91,6 +102,13 @@ LLMModelConfig <- function(provider,
       obj_list[!sapply(obj_list, is.null)]
     })
   }
+
+  # Clear saved job_details from query for job submission
+  mask_job_details <- !endsWith(names(query_list$input_data), 'jobDetails')
+
+  query_list$input_data <- query_list$input_data[mask_job_details]
+
+
   return(query_list)
 }
 
@@ -127,7 +145,8 @@ InputData <- function(studyInfo = "",
                       clusterMetadata = list(),
                       markerGenes = list(),
                       visualizationData = NULL,
-                      expressionData = list()) {
+                      expressionData = list(),
+                      nParallelClusters = numeric()) {
 
   # Create the object
   obj <- list(
@@ -137,7 +156,8 @@ InputData <- function(studyInfo = "",
     clusterMetadata = clusterMetadata,
     markerGenes = markerGenes,
     visualizationData = visualizationData,
-    expressionData = expressionData
+    expressionData = expressionData,
+    nParallelClusters = nParallelClusters
   )
 
   # Set class
@@ -195,6 +215,13 @@ InputData <- function(studyInfo = "",
 
   if (!is.list(obj$expressionData)) {
     stop("expressionData must be a named list")
+  }
+
+  if (!is.numeric(obj$nParallelClusters) ||
+      obj$nParallelClusters != round(obj$nParallelClusters) ||
+      obj$nParallelClusters < 1 ||
+      obj$nParallelClusters > 50) {
+    stop("n_parallel_clusters must be an integer in range of 1 to 50")
   }
 
   # Validate nested structure of clusterMetadata
@@ -316,6 +343,9 @@ get_example_input_data <- function() {
         "Cluster2" = 2.8,
         "Cluster3" = 5.2
       )
-    )
+    ),
+
+    nParallelClusters = 5
+
   )
 }

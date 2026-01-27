@@ -224,7 +224,8 @@
     data.frame(
       clusterId = as.character(cluster_map[ann$clusterId] %||% ann$clusterId),
       annotation = as.character(ann$annotation %||% 'Unknown'),
-      ontologyTerm = as.character(ann$cellOntologyTerm %||% 'Unknown'),
+      ontologyTerm = as.character(ann$cellOntologyTermName %||% 'Unknown'),
+      ontologyTermID = as.character(ann$cellOntologyTerm %||% 'Unknown'),
       granularAnnotation = as.character(ann$granularAnnotation %||% ''),
       cellState = as.character(ann$cellState %||% ''),
       justification = as.character(ann$justification %||% ''),

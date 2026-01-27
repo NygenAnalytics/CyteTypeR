@@ -13,6 +13,7 @@ CyteTypeR(
   results_prefix = "cytetype",
   poll_interval_seconds = 30,
   timeout_seconds = 1200,
+  n_parallel_clusters = 2,
   api_url = NULL,
   save_query = TRUE,
   query_filename = "query.json",
@@ -42,6 +43,8 @@ Default is "cytetype".}
 
 \item{timeout_seconds}{Integer specifying maximum wait time for job completion
 (in seconds). Default is 1200 (20 minutes).}
+
+\item{n_parallel_clusters}{Number of parallel requests to make to the model. Maximum is 50. Note than high values can lead to rate limit errors.}
 
 \item{api_url}{Optional character string specifying custom API URL.
 If \code{NULL}, uses default URL. Default is \code{NULL}.}
