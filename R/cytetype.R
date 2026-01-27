@@ -215,6 +215,7 @@ CyteTypeR <- function(obj,
                       results_prefix = "cytetype",
                       poll_interval_seconds = 30,
                       timeout_seconds = 1200,
+                      n_parallel_clusters = 2,
                       api_url = NULL,
                       save_query = TRUE,
                       query_filename = "query.json",
@@ -224,6 +225,7 @@ CyteTypeR <- function(obj,
   api_url <- api_url %||% .get_default_api_url()
   prepped_data$studyInfo <- study_context %||% ""
   prepped_data$infoTags <- metadata %||% list()
+  prepped_data$nParallelClusters <- n_parallel_clusters
 
   group_key <- prepped_data$group_key
   prepped_data$group_key <- NULL
