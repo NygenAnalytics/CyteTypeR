@@ -1,5 +1,16 @@
 # Valid LLM Provider Names
-LLM_PROVIDERS <- c("google", "openai", "anthropic", "groq", "mistral", "openrouter", "bedrock")
+LLM_PROVIDERS <- c("anthropic",
+                   "bedrock",
+                   "fireworks",
+                   "google",
+                   "groq",
+                   "huggingface",
+                   "mistral",
+                   "openai",
+                   "openrouter",
+                   "vertex",
+                   "xai"
+)
 
 # Valid Agent Type Names
 AGENT_TYPES <- c("contextualizer", "annotator", "reviewer", "summarizer", "clinician", "chat")
