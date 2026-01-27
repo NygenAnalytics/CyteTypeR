@@ -270,6 +270,16 @@ CyteTypeR <- function(obj,
     auth_token = auth_token
   )
 
+  if (exists("prepped_data", envir = .GlobalEnv)){
+    job_detail_fieldname <- paste0(results_prefix,'_jobDetails')
+    prepped_data[[job_detail_fieldname]] <<- job_details
+  }
+
+  # Save the query as json file if true
+  if (save_query){
+    write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
+  }
+
   # poll for results
   result <- .poll_for_results(
     job_id,
