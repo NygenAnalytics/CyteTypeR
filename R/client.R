@@ -1,3 +1,35 @@
+# Upload size limits (bytes): match Python API (vars_h5 10GB uses numeric to avoid integer overflow)
+.MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 10 * 1024 * 1024 * 1024)
+
+#' POST a file as binary to upload/{file_kind}. Returns list with upload_id, file_kind, etc.
+#' @noRd
+.upload_file_binary <- function(api_url, auth_token, file_kind, file_path, timeout_seconds = 3600L) {
+  if (!file.exists(file_path)) stop("Upload file not found: ", file_path)
+  size <- file.info(file_path)$size
+  max_bytes <- .MAX_UPLOAD_BYTES[[file_kind]]
+  if (is.null(max_bytes) || size > max_bytes) {
+    stop(file_kind, " exceeds upload limit: ", size, " bytes (max ", max_bytes, ")")
+  }
+  url <- file.path(api_url, "upload", file_kind)
+  req <- httr2::request(url) |>
+    httr2::req_method("POST") |>
+    httr2::req_body_file(file_path, type = "application/octet-stream") |>
+    httr2::req_headers("Content-Type" = "application/octet-stream") |>
+    httr2::req_timeout(c(30, timeout_seconds))
+  if (!is.null(auth_token)) req <- req |> httr2::req_auth_bearer_token(auth_token)
+  resp <- httr2::req_perform(req)
+  if (httr2::resp_status(resp) != 200) stop("Upload failed: ", httr2::resp_body_string(resp))
+  httr2::resp_body_json(resp)
+}
+
+.upload_obs_duckdb <- function(api_url, auth_token, file_path, timeout_seconds = 3600L) {
+  .upload_file_binary(api_url, auth_token, "obs_duckdb", file_path, timeout_seconds)
+}
+
+.upload_vars_h5 <- function(api_url, auth_token, file_path, timeout_seconds = 3600L) {
+  .upload_file_binary(api_url, auth_token, "vars_h5", file_path, timeout_seconds)
+}
+
 # Submit a new job
 .submit_job <- function(payload, api_url, auth_token = NULL){
 
