@@ -1,3 +1,6 @@
+# Null-coalescing operator - internal use only
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
 # Load defaults
 .onLoad <- function(libname, pkgname) {
   # Set default configuration options
