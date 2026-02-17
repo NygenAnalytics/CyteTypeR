@@ -83,7 +83,7 @@
     if (column == group_key){
       next # skip group_key group in metadata
     }
-    if (class(metadata[[column]]) %in% c("factor", "character")){
+    if (inherits(metadata[[column]], "factor") || is.character(metadata[[column]])){
 
       # Create "crosstab": rows = group vlaues in a metadata cat, columns = groups in group_key
       crosstab <- table(metadata[[column]], metadata[[group_key]], useNA = "no")
@@ -239,6 +239,10 @@
 
   rownames(df) <- df$clusterId
 
+  #cluster categories
+  raw_cats <- raw_results$clusterCategories
+
+  # df$clusterCategories
 
   return(df)
 }
