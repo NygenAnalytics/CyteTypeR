@@ -121,7 +121,7 @@
                log_info("Job {job_id} completed successfully.")
 
                if (!is.list(status_response$result)) {
-                 stop(cytetype_api_error("api", paste("Expected list result, got", class(status_response$result))))
+                 stop(cytetype_api_error(message = paste("Expected list result, got", class(status_response$result)), call = "api"))
                }
 
                return(status_response$result)
