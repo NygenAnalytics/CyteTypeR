@@ -85,7 +85,7 @@ PrepareCyteTypeR <- function(obj,
 
   if (aggregate_metadata){
     print("Aggregating metadata...")
-    group_metadata <- .aggregate_metadata(obj,group_key)
+    group_metadata <- .aggregate_metadata(obj, group_key, min_percentage = min_percentage)
     # Map cluster ids to use those natural numbers
     names(group_metadata) <- cluster_map[names(group_metadata)]
 
