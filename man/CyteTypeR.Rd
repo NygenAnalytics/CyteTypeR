@@ -10,10 +10,16 @@ CyteTypeR(
   study_context = NULL,
   llm_configs = NULL,
   metadata = NULL,
+  n_parallel_clusters = 2L,
   results_prefix = "cytetype",
-  poll_interval_seconds = 30,
-  timeout_seconds = 1200,
-  n_parallel_clusters = 2,
+  override_existing_results = FALSE,
+  upload_artifacts = FALSE,
+  vars_h5_path = "vars.h5",
+  obs_duckdb_path = "obs.duckdb",
+  upload_timeout_seconds = 3600L,
+  cleanup_artifacts = FALSE,
+  poll_interval_seconds = NULL,
+  timeout_seconds = NULL,
   api_url = NULL,
   save_query = TRUE,
   query_filename = "query.json",
@@ -35,16 +41,31 @@ which models to use. If \code{NULL}, uses default models. Default is \code{NULL}
 \item{metadata}{Optional named list containing additional study metadata
 (e.g., DOI, GEO accession). Default is \code{NULL}.}
 
+\item{n_parallel_clusters}{Number of parallel requests to make to the model. Maximum is 50. Note than high values can lead to rate limit errors.}
+
 \item{results_prefix}{Character string prefix for result filenames.
 Default is "cytetype".}
+
+\item{override_existing_results}{Logical. If \code{TRUE}, re-runs annotation even if
+results for this job already exist locally. Default is \code{FALSE}.}
+
+\item{upload_artifacts}{Logical. If \code{TRUE}, build API artifacts from the Seurat object: feature expression
+to vars.h5 (API naming) and cell metadata to obs.duckdb (API naming), then upload. Requires rhdf5 (Bioc) and duckdb. Default is FALSE.}
+
+\item{vars_h5_path}{Path for the vars.h5 artifact. Used when upload_artifacts = TRUE. Default "vars.h5".}
+
+\item{obs_duckdb_path}{Path for the obs.duckdb artifact. Used when upload_artifacts = TRUE. Default "obs.duckdb".}
+
+\item{upload_timeout_seconds}{Timeout in seconds for each artifact upload. Default is 3600.}
+
+\item{cleanup_artifacts}{If TRUE, delete the artifact files at vars_h5_path and obs_duckdb_path
+after the run (success or failure). Default is FALSE.}
 
 \item{poll_interval_seconds}{Integer specifying how often to check job status
 (in seconds). Default is 30.}
 
 \item{timeout_seconds}{Integer specifying maximum wait time for job completion
 (in seconds). Default is 1200 (20 minutes).}
-
-\item{n_parallel_clusters}{Number of parallel requests to make to the model. Maximum is 50. Note than high values can lead to rate limit errors.}
 
 \item{api_url}{Optional character string specifying custom API URL.
 If \code{NULL}, uses default URL. Default is \code{NULL}.}
@@ -62,8 +83,8 @@ Default is \code{NULL}.}
 during job execution. Default is \code{TRUE}.}
 }
 \value{
-The input Seurat object with added \code{cytetype_annotations} metadata
-containing the automated cell type predictions.
+The input Seurat object with added annotation metadata and (if upload_artifacts)
+with artifact uploads matching the Python CyteType workflow.
 }
 \description{
 Submits a prepared dataset to CyteType for automated cell type annotation
