@@ -1,12 +1,15 @@
 <h1 align="left">CyteTypeR</h1>
 <h3 align="left">Automated, evidence-based cell type annotation for single-cell transcriptomics</h3>
-
 <p align="left">
+
+  <a href="https://github.com/NygenAnalytics/CyteTypeR/actions/workflows/R-CMD-check.yaml">
+    <img src="https://github.com/NygenAnalytics/CyteTypeR/actions/workflows/R-CMD-check.yaml/badge.svg" alt="R-CMD-check">
+  </a>
+
   <a href="https://raw.githubusercontent.com/NygenAnalytics/CyteType/refs/heads/master/LICENSE.md">
     <img src="https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg" alt="License: CC BY-NC-SA 4.0">
   </a>
 </p>
-
 ---
 
 > 🎉 **NEW:** [Preprint published November 7, 2025](https://www.biorxiv.org/content/10.1101/2025.11.06.686964v1) on bioRxiv  
