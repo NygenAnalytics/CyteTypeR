@@ -71,7 +71,7 @@
     }
 
     log_debug("Error during status check for job {job_id}: {e$message}")
-    stop(cytetype_api_error(error_type, paste("Error while checking job status:", e$message)))
+    stop(cytetype_api_error(message = paste("Error while checking job status:", e$message), call = error_type))
   })
 }
 
