@@ -45,7 +45,7 @@ test_that("get_example_input_data returns valid InputData structure", {
   expect_s3_class(ex, "InputData")
   expect_identical(length(ex$clusterLabels), 2L)
   expect_true(is.character(ex$studyInfo) && length(ex$studyInfo) == 1L)
-  expect_identical(ex$nParallelClusters, 5)
+  expect_identical(ex$nParallelClusters, 5L)
 })
 
 test_that("InputData rejects nParallelClusters out of range", {
@@ -80,4 +80,11 @@ test_that(".prepare_query_for_json strips jobDetails and converts llm_configs", 
   out <- CyteTypeR:::.prepare_query_for_json(query_list)
   expect_false("cytetype_jobDetails" %in% names(out$input_data))
   expect_true(is.list(out$llm_configs[[1]]) && !inherits(out$llm_configs[[1]], "LLMModelConfig"))
+})
+
+test_that(".prepare_query_for_json preserves uploaded_files", {
+  input_data <- list(studyInfo = "x", infoTags = list(), clusterLabels = list(), clusterMetadata = list(), markerGenes = list(), visualizationData = NULL, expressionData = list(), nParallelClusters = 2L)
+  query_list <- list(input_data = input_data, llm_configs = NULL, uploaded_files = list(obs_duckdb = "id1", vars_h5 = "id2"))
+  out <- CyteTypeR:::.prepare_query_for_json(query_list)
+  expect_identical(out$uploaded_files, list(obs_duckdb = "id1", vars_h5 = "id2"))
 })
