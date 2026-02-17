@@ -13,6 +13,32 @@
   if (requireNamespace("cli", quietly = TRUE)) {
     options(cytetype.use.cli = TRUE)
   }
+
+}
+
+# check if version installed is the latest github release
+.onAttach <- function(libname, pkgname) {
+  current <- as.character(utils::packageVersion(pkgname))
+
+  latest <- tryCatch({
+    url <- "https://api.github.com/repos/NygenAnalytics/CyteTypeR/releases/latest"
+    response <- httr2::request(url) |>
+      httr2::req_timeout(2) |>
+      httr2::req_perform()
+    tag <- httr2::resp_body_json(response)$tag_name
+    sub("^v", "", tag)
+  }, error = function(e) NULL)
+
+  if (!is.null(latest)) {
+    tryCatch({
+      if (package_version(latest) > package_version(current)) {
+        packageStartupMessage(
+          "A newer version of CyteTypeR is available (", current, " -> ", latest, "). ",
+          "Run remotes::install_github('NygenAnalytics/CyteTypeR') to update."
+        )
+      }
+    }, error = function(e) NULL)
+  }
 }
 
 # Get Default API URL
