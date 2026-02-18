@@ -61,7 +61,7 @@
     stop("Package 'rhdf5' is required to build vars.h5. Install with: BiocManager::install('rhdf5')")
   }
 
-  m <- Matrix::as(mat, "CsparseMatrix")
+  m <- as(mat, "CsparseMatrix")
   n_obs <- nrow(m)
   n_vars <- ncol(m)
 
@@ -91,7 +91,7 @@
 }
 
 .save_obs_duckdb <- function(out_file, obs_df, table_name = "obs",
-                             threads = 4L, memory_limit = "4GB", temp_directory = "/tmp/duckdb") {
+                             threads = "4", memory_limit = "4GB", temp_directory = "tmp/duckdb") {
   if (!requireNamespace("duckdb", quietly = TRUE)) {
     stop("Package 'duckdb' is required to build obs.duckdb. Install with: install.packages('duckdb')")
   }
@@ -99,7 +99,7 @@
     stop("Invalid table_name. Use letters, numbers, and underscores only.")
   }
   if (file.exists(out_file)) file.remove(out_file)
-  config <- list(threads = as.integer(threads), memory_limit = memory_limit, temp_directory = temp_directory)
+  config <- list(threads = as.character(threads), memory_limit = memory_limit, temp_directory = temp_directory)
   con <- duckdb::dbConnect(duckdb::duckdb(), out_file, config = config)
   on.exit(duckdb::dbDisconnect(con, shutdown = TRUE), add = TRUE)
   duckdb::dbWriteTable(con, table_name, as.data.frame(obs_df), overwrite = TRUE)

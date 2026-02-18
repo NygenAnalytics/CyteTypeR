@@ -290,8 +290,10 @@ CyteTypeR <- function(obj,
   if (upload_artifacts) {
     log_info("Building vars.h5 from normalized counts (cells x features)...")
     # GetAssayData returns genes x cells; API expects cells x genes (n_obs x n_vars).
-    mat <- t(Seurat::GetAssayData(obj, layer = "data"))
+    mat <- Matrix::t(Seurat::GetAssayData(obj, layer = "data"))
+
     default_assay <- Seurat::DefaultAssay(obj)
+
     feature_df <- tryCatch(
       as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.features),
       error = function(e) NULL

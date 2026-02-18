@@ -15,7 +15,7 @@
     httr2::req_method("POST") |>
     httr2::req_body_file(file_path, type = "application/octet-stream") |>
     httr2::req_headers("Content-Type" = "application/octet-stream") |>
-    httr2::req_timeout(c(30, timeout_seconds))
+    httr2::req_timeout(timeout_seconds)
   if (!is.null(auth_token)) req <- req |> httr2::req_auth_bearer_token(auth_token)
   resp <- httr2::req_perform(req)
   if (httr2::resp_status(resp) != 200) stop("Upload failed: ", httr2::resp_body_string(resp))
