@@ -3,3 +3,4 @@
 ^LICENSE\.md$
 ^revdep$
 ^\.github$
+^docs$

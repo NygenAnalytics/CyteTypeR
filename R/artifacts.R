@@ -1,4 +1,5 @@
-
+#' @importFrom methods as
+#'
 # Sanitize column name for HDF5 dataset and ensure unique (mirrors Python _safe_column_dataset_name).
 .safe_column_dataset_name <- function(source_name, column_index, existing_names) {
   base <- gsub("[^A-Za-z0-9_.-]", "_", source_name)
