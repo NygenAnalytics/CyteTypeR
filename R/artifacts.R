@@ -57,14 +57,16 @@
   invisible(NULL)
 }
 
-.save_vars_h5 <- function(out_file, mat, feature_df = NULL, feature_names = NULL) {
-  if (!requireNamespace("rhdf5", quietly = TRUE)) {
-    stop("Package 'rhdf5' is required to build vars.h5. Install with: BiocManager::install('rhdf5')")
-  }
-
+.save_vars_h5 <- function(out_file, mat, feature_df = NULL, feature_names = NULL,
+                          col_batch = NULL, min_chunk_size = 10000L) {
   m <- as(mat, "CsparseMatrix")
   n_obs <- nrow(m)
   n_vars <- ncol(m)
+
+  if (is.null(col_batch)) {
+    col_batch <- max(1L, as.integer(100000000 / max(n_obs, 1)))
+  }
+  chunk_size <- max(1L, min(n_obs * 10L, min_chunk_size))
 
   if (file.exists(out_file) && !file.remove(out_file)) {
     stop("Could not remove existing file: ", out_file)
@@ -74,15 +76,63 @@
   fid <- rhdf5::H5Fopen(out_file, flags = "H5F_ACC_RDWR")
   on.exit(rhdf5::H5Fclose(fid), add = TRUE)
 
-  rhdf5::H5Gcreate(fid, "vars")
-  gid <- rhdf5::H5Gopen(fid, "vars")
-  on.exit(rhdf5::H5Gclose(gid), add = TRUE)
+  rhdf5::h5createGroup(fid, "vars")
+  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = fid, name = "vars/n_obs")
+  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = fid, name = "vars/n_vars")
 
-  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = gid, name = "n_obs")
-  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = gid, name = "n_vars")
-  rhdf5::h5writeDataset(as.integer(m@i), h5loc = fid, name = "vars/indices", level = 5L)
-  rhdf5::h5writeDataset(as.double(m@x),  h5loc = fid, name = "vars/data",    level = 5L)
-  rhdf5::h5writeDataset(as.double(m@p),  h5loc = fid, name = "vars/indptr",  level = 5L)
+  # Create extensible datasets (equivalent to maxshape=(None,) in h5py)
+  max_nnz <- n_obs * n_vars  # upper bound
+  rhdf5::h5createDataset(
+    fid, "vars/indices",
+    dims = 0L,
+    maxdims = rhdf5::H5Sunlimited(),
+    chunk = chunk_size,
+    H5type = "H5T_NATIVE_INT32",
+    level = 0L  # LZ4 not directly available, use level for deflate or 0 for none
+  )
+  rhdf5::h5createDataset(
+    fid, "vars/data",
+    dims = 0L,
+    maxdims = rhdf5::H5Sunlimited(),
+    chunk = chunk_size,
+    H5type = "H5T_NATIVE_FLOAT",
+    level = 5L
+  )
+
+  indptr <- 0L
+  current_size <- 0L
+
+  starts <- seq(1L, n_vars, by = col_batch)
+  for (start in starts) {
+    end <- min(start + col_batch - 1L, n_vars)
+    chunk <- as(m[, start:end, drop = FALSE], "CsparseMatrix")
+
+    chunk_indices <- as.integer(chunk@i)
+    chunk_data   <- as.numeric(chunk@x)
+    chunk_nnz    <- length(chunk_indices)
+
+    if (chunk_nnz > 0L) {
+      # Extend and write indices
+      rhdf5::h5set_extent(fid, "vars/indices", current_size + chunk_nnz)
+      rhdf5::h5writeDataset(
+        chunk_indices, h5loc = fid, name = "vars/indices",
+        index = list((current_size + 1L):(current_size + chunk_nnz))
+      )
+      # Extend and write data
+      rhdf5::h5set_extent(fid, "vars/data", current_size + chunk_nnz)
+      rhdf5::h5writeDataset(
+        chunk_data, h5loc = fid, name = "vars/data",
+        index = list((current_size + 1L):(current_size + chunk_nnz))
+      )
+      current_size <- current_size + chunk_nnz
+    }
+
+    # Accumulate indptr (skip first element after first chunk)
+    new_indptr <- as.integer(chunk@p[-1L] + indptr[length(indptr)])
+    indptr <- c(indptr, new_indptr)
+  }
+
+  rhdf5::h5writeDataset(as.integer(indptr), h5loc = fid, name = "vars/indptr", level = 5L)
 
   if (!is.null(feature_df)) {
     .write_var_metadata(fid, n_cols = n_vars, feature_df = feature_df, feature_names = feature_names)
