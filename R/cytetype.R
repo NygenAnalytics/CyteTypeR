@@ -141,41 +141,26 @@ PrepareCyteTypeR <- function(obj,
 #'
 #' @param obj A Seurat object (will be returned with annotations added).
 #' @param prepped_data Named list containing prepared data from `PrepareCyteTypeR()`.
-#' @param study_context Optional character string providing background information
-#'   about the study for better annotation context. Default is `NULL`.
-#' @param llm_configs Optional list of LLM configuration objects specifying
-#'   which models to use. If `NULL`, uses default models. Default is `NULL`.
-#' @param metadata Optional named list containing additional study metadata
-#'   (e.g., DOI, GEO accession). Default is `NULL`.
-#' @param results_prefix Character string prefix for result filenames.
-#'   Default is "cytetype".
-#' @param poll_interval_seconds Integer specifying how often to check job status
-#'   (in seconds). Default is 30.
-#' @param timeout_seconds Integer specifying maximum wait time for job completion
-#'   (in seconds). Default is 1200 (20 minutes).
-#' @param n_parallel_clusters Number of parallel requests to make to the model. Maximum is 50. Note than high values can lead to rate limit errors.
-#' @param override_existing_results Logical. If `TRUE`, re-runs annotation even if
-#'   results for this job already exist locally. Default is `FALSE`.
-#' @param upload_artifacts Logical. If `TRUE`, build API artifacts from the Seurat object: feature expression
-#'   to vars.h5 (API naming) and cell metadata to obs.duckdb (API naming), then upload. Requires rhdf5 (Bioc) and duckdb. Default is FALSE.
-#' @param vars_h5_path Path for the vars.h5 artifact. Used when upload_artifacts = TRUE. Default "vars.h5".
-#' @param obs_duckdb_path Path for the obs.duckdb artifact. Used when upload_artifacts = TRUE. Default "obs.duckdb".
-#' @param upload_timeout_seconds Timeout in seconds for each artifact upload. Default is 3600.
-#' @param cleanup_artifacts If TRUE, delete the artifact files at vars_h5_path and obs_duckdb_path
-#'   after the run (success or failure). Default is FALSE.
-#' @param api_url Optional character string specifying custom API URL.
-#'   If `NULL`, uses default URL. Default is `NULL`.
-#' @param save_query Logical indicating whether to save the query as JSON file.
-#'   Default is `TRUE`.
-#' @param query_filename Character string specifying filename for saved query.
-#'   Default is "query.json".
-#' @param auth_token Optional authentication token for API access.
-#'   Default is `NULL`.
-#' @param show_progress Logical indicating whether to display progress updates
-#'   during job execution. Default is `TRUE`.
+#' @param study_context Optional character. Biological context for the experimental setup (e.g. organisms, tissues, diseases, developmental stages, single_cell methods, experimental conditions). Default is `NULL`.
+#' @param llm_configs Optional list of LLM configs. Each element must match the LLMModelConfig schema with required `provider` and `name`; either `apiKey` or all AWS credentials (`awsAccessKeyId`, `awsSecretAccessKey`, `awsDefaultRegion`) must be provided. Default is `NULL` (API default model).
+#' @param metadata Optional named list. Custom metadata tags for the report header; URL-like values are made clickable in the report. Default is `NULL`.
+#' @param n_parallel_clusters Integer. Number of parallel requests to the model (max 50). High values can trigger rate limits. Default is 2.
+#' @param results_prefix Character. Prefix for keys added to `obj@meta.data` and `obj@misc` storing results; the annotation column is `obj@meta.data[[paste(results_prefix, group_key, sep = "_")]]`. Default is `"cytetype"`.
+#' @param poll_interval_seconds Integer. How often (seconds) to poll the API for results. Default from options (10).
+#' @param timeout_seconds Integer. Maximum time (seconds) to wait for results before erroring. Default from options (7200).
+#' @param api_url Optional character. CyteType API base URL. If `NULL`, uses the option/default URL. Default is `NULL`.
+#' @param auth_token Optional character. Bearer token for API auth. If `NULL`, uses none. Default is `NULL`.
+#' @param save_query Logical. Whether to save the request payload to a JSON file. Default is `TRUE`.
+#' @param query_filename Character. Filename for the saved query when `save_query` is `TRUE`. Default is `"query.json"`.
+#' @param vars_h5_path Character. Local path for the generated vars.h5 artifact. Default is `"vars.h5"`.
+#' @param obs_duckdb_path Character. Local path for the generated obs.duckdb artifact. Default is `"obs.duckdb"`.
+#' @param upload_timeout_seconds Integer. Socket read timeout (seconds) for each artifact upload. Default is 3600.
+#' @param cleanup_artifacts Logical. If `TRUE`, delete generated artifact files after the run (success or failure). Default is `FALSE`.
+#' @param require_artifacts Logical. If `TRUE`, an error during artifact build or upload stops the run; if `FALSE`, failures are skipped and annotation continues without artifacts. Default is `TRUE`.
+#' @param show_progress Logical. Whether to show progress (spinner and cluster status). Set `FALSE` to disable. Default is `TRUE`.
+#' @param override_existing_results Logical. If `TRUE`, allow overwriting existing results with the same `results_prefix`. If `FALSE` and results exist, an error is raised. Default is `FALSE`.
 #'
-#' @return The input Seurat object with added annotation metadata and (if upload_artifacts)
-#'   with artifact uploads matching the Python CyteType workflow.
+#' @return The input Seurat object with added annotation metadata (and artifact uploads when artifacts are built and uploaded).
 #'
 #' @details
 #' The function performs the following workflow:
@@ -221,25 +206,25 @@ CyteTypeR <- function(obj,
                       metadata = NULL,
                       n_parallel_clusters = 2L,
                       results_prefix = "cytetype",
-                      override_existing_results = FALSE,
-                      upload_artifacts = FALSE,
+                      poll_interval_seconds = NULL,
+                      timeout_seconds = NULL,
+                      api_url = NULL,
+                      auth_token = NULL,
+                      save_query = TRUE,
+                      query_filename = "query.json",
                       vars_h5_path = "vars.h5",
                       obs_duckdb_path = "obs.duckdb",
                       upload_timeout_seconds = 3600L,
                       cleanup_artifacts = FALSE,
-                      poll_interval_seconds = NULL,
-                      timeout_seconds = NULL,
-                      api_url = NULL,
-                      save_query = TRUE,
-                      query_filename = "query.json",
-                      auth_token = NULL,
-                      show_progress = TRUE
-){
+                      require_artifacts = TRUE,
+                      show_progress = TRUE,
+                      override_existing_results = FALSE
+ ){
   api_url <- api_url %||% .get_default_api_url()
   poll_interval_seconds <- poll_interval_seconds %||% .get_default_poll_interval()
   timeout_seconds <- timeout_seconds %||% .get_default_timeout()
-  if (upload_artifacts && upload_timeout_seconds <= 0) {
-    stop("upload_timeout_seconds must be greater than 0 when upload_artifacts = TRUE")
+  if (upload_timeout_seconds <= 0) {
+    stop("upload_timeout_seconds must be greater than 0")
   }
 
   n_parallel_clusters <- as.integer(n_parallel_clusters)
@@ -286,52 +271,67 @@ CyteTypeR <- function(obj,
     llm_configs = llm_configs
   )
 
-  artifact_paths <- character(0)
-  if (upload_artifacts) {
-    log_info("Building vars.h5 from normalized counts (cells x features)...")
-    # GetAssayData returns genes x cells; API expects cells x genes (n_obs x n_vars).
-    mat <- Matrix::t(Seurat::GetAssayData(obj, layer = "data"))
+  artifact_paths <- c(vars_h5_path, obs_duckdb_path)
 
-    default_assay <- Seurat::DefaultAssay(obj)
+  tryCatch({
+    tryCatch({
+      log_info("Building vars.h5 from normalized counts (cells x features)...")
+      # GetAssayData returns genes x cells; API expects cells x genes (n_obs x n_vars).
+      mat <- Matrix::t(Seurat::GetAssayData(obj, layer = "data"))
 
-    feature_df <- tryCatch(
-      as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.features),
-      error = function(e) NULL
-    )
-    feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
+      default_assay <- Seurat::DefaultAssay(obj)
 
-    .save_vars_h5(vars_h5_path, mat, feature_df = feature_df, feature_names = feature_names)
+      feature_df <- tryCatch(
+        as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.features),
+        error = function(e) NULL
+      )
+      feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
+      .save_vars_h5(vars_h5_path, mat, feature_df = feature_df, feature_names = feature_names)
 
-    artifact_paths <- c(artifact_paths, vars_h5_path)
-    log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
+      log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
+      .save_obs_duckdb(obs_duckdb_path, obj@meta.data)
 
-    .save_obs_duckdb(obs_duckdb_path, obj@meta.data)
-    artifact_paths <- c(artifact_paths, obs_duckdb_path)
+      log_info("Uploading obs.duckdb (cell metadata)...")
+      cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path, upload_timeout_seconds)
 
-    log_info("Uploading obs.duckdb (cell metadata)...")
-    cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path, upload_timeout_seconds)
+      log_info("Uploading vars.h5 (feature expression)...")
+      feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path, upload_timeout_seconds)
 
-    log_info("Uploading vars.h5 (feature expression)...")
-    feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path, upload_timeout_seconds)
+      query_list$uploaded_files <- list(
+        obs_duckdb = cell_metadata_upload$upload_id,
+        vars_h5 = feature_expression_upload$upload_id
+      )
+      
+      }, error = function(e) {
+        if (require_artifacts) {
+          log_error("Artifact build failed: {e}")
+          stop(e)
+        } else {
+          log_warning(paste(
+            "Artifact build failed. Continuing without artifacts.",
+            "Set `require_artifacts=TRUE` to raise this as an error.",
+            "Original error:", conditionMessage(e)
+          ))
+        }
+      })
 
-    query_list$uploaded_files <- list(
-      obs_duckdb = cell_metadata_upload$upload_id,
-      vars_h5 = feature_expression_upload$upload_id
-    )
-  }
+  }, error = function(e) {
+    log_error("Error uploading artifacts: {e}")
+    stop(e)
+  }, finally = {
+      if (cleanup_artifacts && length(artifact_paths) > 0) {
+        on.exit({
+          for (f in artifact_paths) tryCatch(file.remove(f), error = function(e) NULL)
+        }, add = TRUE)
+      }
+  })
 
   query_for_json <- .prepare_query_for_json(query_list)
-
-  if (upload_artifacts && cleanup_artifacts && length(artifact_paths) > 0) {
-    on.exit({
-      for (f in artifact_paths) tryCatch(file.remove(f), error = function(e) NULL)
-    }, add = TRUE)
-  }
+  if (save_query){
+  write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
+}
 
   job_id <- .submit_job(query_for_json, api_url, auth_token)
-  if (is.na(job_id)) {
-    stop("Job submission failed.")
-  }
 
   report_url <- file.path(api_url, 'report', job_id)
   job_details <- list(
@@ -340,13 +340,8 @@ CyteTypeR <- function(obj,
     api_url = api_url,
     auth_token = auth_token
   )
-  write_json(job_details, path = paste0('job_details_', job_id, '.json'), auto_unbox = TRUE, pretty = TRUE)
 
   obj <- .store_job_details_seurat(obj, job_id, api_url, results_prefix, group_key, prepped_data$clusterLabels)
-
-  if (save_query){
-    write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
-  }
 
   # poll for results
   result <- .poll_for_results(

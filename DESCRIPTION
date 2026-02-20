@@ -20,14 +20,15 @@ Imports:
     Matrix,
     methods,
     purrr,
+    rhdf5,
     Seurat,
     tibble,
     tidyr
 Suggests: 
     duckdb,
+    furrr,
     knitr,
     rmarkdown,
-    rhdf5,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 VignetteBuilder: knitr

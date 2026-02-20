@@ -12,19 +12,19 @@ CyteTypeR(
   metadata = NULL,
   n_parallel_clusters = 2L,
   results_prefix = "cytetype",
-  override_existing_results = FALSE,
-  upload_artifacts = FALSE,
+  poll_interval_seconds = NULL,
+  timeout_seconds = NULL,
+  api_url = NULL,
+  auth_token = NULL,
+  save_query = TRUE,
+  query_filename = "query.json",
   vars_h5_path = "vars.h5",
   obs_duckdb_path = "obs.duckdb",
   upload_timeout_seconds = 3600L,
   cleanup_artifacts = FALSE,
-  poll_interval_seconds = NULL,
-  timeout_seconds = NULL,
-  api_url = NULL,
-  save_query = TRUE,
-  query_filename = "query.json",
-  auth_token = NULL,
-  show_progress = TRUE
+  require_artifacts = TRUE,
+  show_progress = TRUE,
+  override_existing_results = FALSE
 )
 }
 \arguments{
@@ -32,59 +32,44 @@ CyteTypeR(
 
 \item{prepped_data}{Named list containing prepared data from \code{PrepareCyteTypeR()}.}
 
-\item{study_context}{Optional character string providing background information
-about the study for better annotation context. Default is \code{NULL}.}
+\item{study_context}{Optional character. Biological context for the experimental setup (e.g. organisms, tissues, diseases, developmental stages, single_cell methods, experimental conditions). Default is \code{NULL}.}
 
-\item{llm_configs}{Optional list of LLM configuration objects specifying
-which models to use. If \code{NULL}, uses default models. Default is \code{NULL}.}
+\item{llm_configs}{Optional list of LLM configs. Each element must match the LLMModelConfig schema with required \code{provider} and \code{name}; either \code{apiKey} or all AWS credentials (\code{awsAccessKeyId}, \code{awsSecretAccessKey}, \code{awsDefaultRegion}) must be provided. Default is \code{NULL} (API default model).}
 
-\item{metadata}{Optional named list containing additional study metadata
-(e.g., DOI, GEO accession). Default is \code{NULL}.}
+\item{metadata}{Optional named list. Custom metadata tags for the report header; URL-like values are made clickable in the report. Default is \code{NULL}.}
 
-\item{n_parallel_clusters}{Number of parallel requests to make to the model. Maximum is 50. Note than high values can lead to rate limit errors.}
+\item{n_parallel_clusters}{Integer. Number of parallel requests to the model (max 50). High values can trigger rate limits. Default is 2.}
 
-\item{results_prefix}{Character string prefix for result filenames.
-Default is "cytetype".}
+\item{results_prefix}{Character. Prefix for keys added to \code{obj@meta.data} and \code{obj@misc} storing results; the annotation column is \code{obj@meta.data[[paste(results_prefix, group_key, sep = "_")]]}. Default is \code{"cytetype"}.}
 
-\item{override_existing_results}{Logical. If \code{TRUE}, re-runs annotation even if
-results for this job already exist locally. Default is \code{FALSE}.}
+\item{poll_interval_seconds}{Integer. How often (seconds) to poll the API for results. Default from options (10).}
 
-\item{upload_artifacts}{Logical. If \code{TRUE}, build API artifacts from the Seurat object: feature expression
-to vars.h5 (API naming) and cell metadata to obs.duckdb (API naming), then upload. Requires rhdf5 (Bioc) and duckdb. Default is FALSE.}
+\item{timeout_seconds}{Integer. Maximum time (seconds) to wait for results before erroring. Default from options (7200).}
 
-\item{vars_h5_path}{Path for the vars.h5 artifact. Used when upload_artifacts = TRUE. Default "vars.h5".}
+\item{api_url}{Optional character. CyteType API base URL. If \code{NULL}, uses the option/default URL. Default is \code{NULL}.}
 
-\item{obs_duckdb_path}{Path for the obs.duckdb artifact. Used when upload_artifacts = TRUE. Default "obs.duckdb".}
+\item{auth_token}{Optional character. Bearer token for API auth. If \code{NULL}, uses none. Default is \code{NULL}.}
 
-\item{upload_timeout_seconds}{Timeout in seconds for each artifact upload. Default is 3600.}
+\item{save_query}{Logical. Whether to save the request payload to a JSON file. Default is \code{TRUE}.}
 
-\item{cleanup_artifacts}{If TRUE, delete the artifact files at vars_h5_path and obs_duckdb_path
-after the run (success or failure). Default is FALSE.}
+\item{query_filename}{Character. Filename for the saved query when \code{save_query} is \code{TRUE}. Default is \code{"query.json"}.}
 
-\item{poll_interval_seconds}{Integer specifying how often to check job status
-(in seconds). Default is 30.}
+\item{vars_h5_path}{Character. Local path for the generated vars.h5 artifact. Default is \code{"vars.h5"}.}
 
-\item{timeout_seconds}{Integer specifying maximum wait time for job completion
-(in seconds). Default is 1200 (20 minutes).}
+\item{obs_duckdb_path}{Character. Local path for the generated obs.duckdb artifact. Default is \code{"obs.duckdb"}.}
 
-\item{api_url}{Optional character string specifying custom API URL.
-If \code{NULL}, uses default URL. Default is \code{NULL}.}
+\item{upload_timeout_seconds}{Integer. Socket read timeout (seconds) for each artifact upload. Default is 3600.}
 
-\item{save_query}{Logical indicating whether to save the query as JSON file.
-Default is \code{TRUE}.}
+\item{cleanup_artifacts}{Logical. If \code{TRUE}, delete generated artifact files after the run (success or failure). Default is \code{FALSE}.}
 
-\item{query_filename}{Character string specifying filename for saved query.
-Default is "query.json".}
+\item{require_artifacts}{Logical. If \code{TRUE}, an error during artifact build or upload stops the run; if \code{FALSE}, failures are skipped and annotation continues without artifacts. Default is \code{TRUE}.}
 
-\item{auth_token}{Optional authentication token for API access.
-Default is \code{NULL}.}
+\item{show_progress}{Logical. Whether to show progress (spinner and cluster status). Set \code{FALSE} to disable. Default is \code{TRUE}.}
 
-\item{show_progress}{Logical indicating whether to display progress updates
-during job execution. Default is \code{TRUE}.}
+\item{override_existing_results}{Logical. If \code{TRUE}, allow overwriting existing results with the same \code{results_prefix}. If \code{FALSE} and results exist, an error is raised. Default is \code{FALSE}.}
 }
 \value{
-The input Seurat object with added annotation metadata and (if upload_artifacts)
-with artifact uploads matching the Python CyteType workflow.
+The input Seurat object with added annotation metadata (and artifact uploads when artifacts are built and uploaded).
 }
 \description{
 Submits a prepared dataset to CyteType for automated cell type annotation
