@@ -83,9 +83,9 @@
     if (column == group_key){
       next # skip group_key group in metadata
     }
-    if (class(metadata[[column]]) %in% c("factor", "character")){
+    if (inherits(metadata[[column]], "factor") || is.character(metadata[[column]])){
 
-      # Create "crosstab": rows = group vlaues in a metadata cat, columns = groups in group_key
+      # Create "crosstab": rows = group values in a metadata cat, columns = groups in group_key
       crosstab <- table(metadata[[column]], metadata[[group_key]], useNA = "no")
 
       # Percentages in each column(metadata group with prop.table margin=2)
@@ -118,6 +118,24 @@
   }
 
   return(result)
+}
+
+# Sample visualization coordinates per group (mirrors Python max_cells_per_group).
+.sample_visualization_data <- function(obj, group_key, coordinates_key, cluster_map, max_cells_per_group = 1000) {
+  coords <- Embeddings(obj, reduction = coordinates_key)
+  if (ncol(coords) > 2) coords <- coords[, 1:2]
+  groups <- obj[[group_key]][[group_key]]
+  idx_by_group <- split(seq_len(nrow(coords)), as.character(groups))
+  set.seed(42)
+  sampled_idx <- unlist(lapply(idx_by_group, function(ii) {
+    n <- min(max_cells_per_group, length(ii))
+    sample(ii, n)
+  }), use.names = FALSE)
+  coords_sampled <- coords[sampled_idx, , drop = FALSE]
+  clusters_sampled <- as.character(groups[sampled_idx])
+  cluster_ids <- as.character(cluster_map[clusters_sampled])
+  coordinates_list <- lapply(seq_len(nrow(coords_sampled)), function(i) as.numeric(coords_sampled[i, ]))
+  list(coordinates = coordinates_list, clusters = cluster_ids)
 }
 
 # Validate Gene Symbols in Seurat Object
@@ -204,28 +222,93 @@
   log_info(paste("Markers check: done", cli::symbol$tick))
 }
 
-# Transform CyteType Results for Seurat Integration
+# Store job details in Seurat object misc (no auth_token in stored list).
+.store_job_details_seurat <- function(obj, job_id, api_url, results_prefix, group_key = NULL, cluster_labels = NULL) {
+  if (is.null(obj@misc)) obj@misc <- list()
+  obj@misc[[paste0(results_prefix, "_jobDetails")]] <- list(
+    job_id = job_id,
+    report_url = file.path(api_url, "report", job_id),
+    api_url = api_url,
+    group_key = group_key,
+    cluster_labels = cluster_labels
+  )
+  obj
+}
 
+# Normalize API result annotations to a flat list (handles dict or list format).
+.normalize_result_annotations <- function(result) {
+  raw <- result$annotations
+  if (is.null(raw) || !is.list(raw)) return(result)
+  items <- if (length(names(raw)) > 0L && !identical(names(raw), as.character(seq_along(raw)))) {
+    lapply(seq_along(raw), function(i) {
+      x <- raw[[i]]
+      ann <- if (is.list(x$latest) && is.list(x$latest$annotation)) x$latest$annotation else x
+      list(
+        clusterId = ann$clusterId %||% names(raw)[i] %||% "",
+        annotation = ann$annotation %||% "Unknown",
+        ontologyTerm = ann$cellOntologyTermName %||% ann$cellOntologyTerm %||% "Unknown",
+        ontologyTermID = ann$cellOntologyTerm %||% "Unknown",
+        cellState = ann$cellState %||% "",
+        granularAnnotation = ann$granularAnnotation %||% ""
+      )
+    })
+  } else {
+    lapply(raw, function(x) {
+      ann <- if (is.list(x$latest) && is.list(x$latest$annotation)) x$latest$annotation else x
+      list(
+        clusterId = ann$clusterId %||% "",
+        annotation = ann$annotation %||% "Unknown",
+        ontologyTerm = ann$cellOntologyTermName %||% ann$cellOntologyTerm %||% ann$ontologyTerm %||% "Unknown",
+        ontologyTermID = ann$cellOntologyTerm %||% ann$ontologyTermID %||% "Unknown",
+        cellState = ann$cellState %||% "",
+        granularAnnotation = ann$granularAnnotation %||% ""
+      )
+    })
+  }
+  result$annotations <- items
+  result
+}
+
+# Add annotation columns to obj@meta.data and store full result in obj@misc.
+.store_annotations_seurat <- function(obj, result, job_id, results_prefix, group_key, cluster_labels) {
+  ann_list <- result$annotations
+  if (is.null(ann_list) || length(ann_list) == 0L) return(obj)
+  orig_to_id <- setNames(names(cluster_labels), as.character(cluster_labels))
+  cells_group <- as.character(obj[[group_key, drop = TRUE]])
+  clusters_per_cell <- as.character(orig_to_id[cells_group])
+  .add_col <- function(field_key, col_name, default = "") {
+    field_map <- setNames(
+      vapply(ann_list, function(a) as.character(a[[field_key]] %||% default), character(1)),
+      vapply(ann_list, function(a) as.character(a$clusterId %||% ""), character(1))
+    )
+    vals <- as.character(field_map[clusters_per_cell])
+    vals[is.na(vals)] <- default
+    obj@meta.data[[col_name]] <<- factor(vals)
+    NULL
+  }
+  prefix <- results_prefix
+  gk <- group_key
+  .add_col("annotation", paste0(prefix, "_annotation_", gk), "Unknown")
+  .add_col("ontologyTerm", paste0(prefix, "_cellOntologyTerm_", gk), "Unknown")
+  .add_col("ontologyTermID", paste0(prefix, "_cellOntologyTermID_", gk), "Unknown")
+  .add_col("cellState", paste0(prefix, "_cellState_", gk), "")
+  if (is.null(obj@misc)) obj@misc <- list()
+  obj@misc[[paste0(results_prefix, "_results")]] <- list(job_id = job_id, result = result)
+  obj
+}
+
+# Transform CyteType Results for Seurat Integration (handles raw or normalized annotations).
 .transform_results_seurat <- function(raw_results = NULL, job_id = NULL, filename = NULL, cluster_map = NULL){
-  # if (is.null(job_id)){
-  #   stop("The job id or the file path for the results file is missing.")
-  # }
-
-  # if (is.null(raw_results)){
-  #     filename <- filename %||% paste0('cytetypeR_results_', job_id,'.json')
-  #     raw_results <- read_json(filename)
-  # }
-
   raw_annotations <- raw_results$annotations
-  annotations_list <- list()
 
   df <- map_dfr(raw_annotations, ~ {
-    ann <- .x$latest$annotation
+    ann <- if (is.character(.x$annotation %||% NULL)) .x else .x$latest$annotation
+    if (!is.list(ann)) ann <- list()
     data.frame(
-      clusterId = as.character(cluster_map[ann$clusterId] %||% ann$clusterId),
+      clusterId = as.character(cluster_map[ann$clusterId] %||% ann$clusterId %||% ""),
       annotation = as.character(ann$annotation %||% 'Unknown'),
-      ontologyTerm = as.character(ann$cellOntologyTermName %||% 'Unknown'),
-      ontologyTermID = as.character(ann$cellOntologyTerm %||% 'Unknown'),
+      ontologyTerm = as.character(ann$cellOntologyTermName %||% ann$cellOntologyTerm %||% ann$ontologyTerm %||% 'Unknown'),
+      ontologyTermID = as.character(ann$cellOntologyTerm %||% ann$ontologyTermID %||% 'Unknown'),
       granularAnnotation = as.character(ann$granularAnnotation %||% ''),
       cellState = as.character(ann$cellState %||% ''),
       justification = as.character(ann$justification %||% ''),
@@ -239,6 +322,10 @@
 
   rownames(df) <- df$clusterId
 
+  #cluster categories
+  raw_cats <- raw_results$clusterCategories
+
+  # df$clusterCategories
 
   return(df)
 }

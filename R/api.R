@@ -3,7 +3,7 @@
 #' @importFrom httr2 req_auth_bearer_token req_body_json req_headers req_method req_perform req_timeout request resp_body_json resp_body_string resp_status
 .api_response_helper <- function(job_id, api_url, req_item, auth_token = NULL) {
 
-  req_api_url <- file.path(api_url, req_item, job_id)
+  req_api_url <- .url_path(api_url, req_item, job_id)
 
   tryCatch({
     # Build and execute request
@@ -71,7 +71,7 @@
     }
 
     log_debug("Error during status check for job {job_id}: {e$message}")
-    stop(cytetype_api_error(error_type, paste("Error while checking job status:", e$message)))
+    stop(cytetype_api_error(message = paste("Error while checking job status:", e$message), call = error_type))
   })
 }
 

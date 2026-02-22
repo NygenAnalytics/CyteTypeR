@@ -104,8 +104,8 @@ LLMModelConfig <- function(provider,
   }
 
   # Clear saved job_details from query for job submission
-  mask_job_details <- !endsWith(names(query_list$input_data), 'jobDetails')
-
+  nm <- names(query_list$input_data)
+  mask_job_details <- if (is.null(nm)) rep(TRUE, length(query_list$input_data)) else !endsWith(nm, "jobDetails")
   query_list$input_data <- query_list$input_data[mask_job_details]
 
 
@@ -146,9 +146,9 @@ InputData <- function(studyInfo = "",
                       markerGenes = list(),
                       visualizationData = NULL,
                       expressionData = list(),
-                      nParallelClusters = numeric()) {
+                      nParallelClusters = 2L,
+                      clientInfo = list(clientType = "seurat", clientVersion = NULL)) {
 
-  # Create the object
   obj <- list(
     studyInfo = studyInfo,
     infoTags = infoTags,
@@ -157,7 +157,8 @@ InputData <- function(studyInfo = "",
     markerGenes = markerGenes,
     visualizationData = visualizationData,
     expressionData = expressionData,
-    nParallelClusters = nParallelClusters
+    nParallelClusters = as.integer(nParallelClusters)[1L],
+    clientInfo = clientInfo
   )
 
   # Set class
@@ -222,6 +223,15 @@ InputData <- function(studyInfo = "",
       obj$nParallelClusters < 1 ||
       obj$nParallelClusters > 50) {
     stop("n_parallel_clusters must be an integer in range of 1 to 50")
+  }
+
+  if (!is.null(obj$clientInfo) && !is.list(obj$clientInfo)) {
+    stop("clientInfo must be NULL or a list")
+  }
+  if (is.list(obj$clientInfo) && length(obj$clientInfo) > 0L) {
+    if (!is.character(obj$clientInfo$clientType) || length(obj$clientInfo$clientType) != 1) {
+      stop("clientInfo$clientType must be a single character string")
+    }
   }
 
   # Validate nested structure of clusterMetadata

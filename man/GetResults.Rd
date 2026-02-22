@@ -4,41 +4,29 @@
 \alias{GetResults}
 \title{Retrieve CyteType Analysis Results}
 \usage{
-GetResults(job_id = NULL)
+GetResults(
+  obj = NULL,
+  job_id = NULL,
+  results_prefix = "cytetype",
+  auth_token = NULL
+)
 }
 \arguments{
-\item{job_id}{Character string specifying the CyteType job ID. If \code{NULL},
-attempts to read from saved job details file (currently WIP).
-Default is \code{NULL}.}
+\item{obj}{Seurat object that may contain stored results (optional).}
+
+\item{job_id}{Job ID from submission (optional if \code{obj} + \code{results_prefix} have stored job details).}
+
+\item{results_prefix}{Prefix used when storing results. Default \code{"cytetype"}.}
+
+\item{auth_token}{Optional bearer token for API fetch.}
 }
 \value{
-List containing the analysis results data structure with cell type
-annotations and associated metadata.
+Result list (annotations, summary, etc.), or transformed results when fetching by \code{job_id} only.
 }
 \description{
-Retrieves and saves results from a completed CyteType analysis job using
-the job ID. Results are saved as a JSON file for further analysis.
-}
-\details{
-The function:
-\enumerate{
-\item Makes an API request to retrieve results for the specified job ID
-\item Saves results to \verb{cytetypeR_results_\{job_id\}.json}
-\item Returns the parsed results data
-}
-
-This function is useful for retrieving results from jobs that were submitted
-previously or from different R sessions.
-}
-\examples{
-\dontrun{
-# Retrieve results by job ID
-results <- GetResults(job_id = "abc123-def456-ghi789")
-
-# Results are automatically saved to:
-# cytetypeR_results_abc123-def456-ghi789.json
-}
-
+If \code{obj} and \code{results_prefix} are given, tries to load from \code{obj@misc} first;
+if not found but job details exist, fetches from the API and stores in \code{obj}.
+If only \code{job_id} is given, fetches from the API and returns (saves JSON).
 }
 \seealso{
 \code{\link[=CyteTypeR]{CyteTypeR()}} for job submission

@@ -1,7 +1,130 @@
+# Upload size limits (bytes): match Python API (vars_h5 10GB uses numeric to avoid integer overflow)
+.MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 10 * 1024 * 1024 * 1024)
+
+# Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
+.CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
+.CHUNK_UPLOAD_TRANSIENT_STATUSES <- c(500L, 502L, 503L, 504L)
+
+# URL path builder (avoids file.path backslashes on Windows)
+.url_path <- function(...) {
+  x <- vapply(c(...), function(seg) gsub("^/+|/+$", "", as.character(seg)), character(1))
+  paste(x[nzchar(x)], collapse = "/")
+}
+
+.make_req <- function(base_url, path, auth_token) {
+  req <- request(paste0(base_url, "/", path))
+  if (!is.null(auth_token)) {
+    req <- req_headers(req, Authorization = paste("Bearer", auth_token))
+  }
+  return(req)
+}
+
+# Chunked upload flow (initiate -> PUT chunks -> complete). Uses scalar timeout; httr2 req_timeout takes seconds.
+
+.upload_file_chunked <- function(api_url,
+                                 auth_token,
+                                 file_kind,
+                                 file_path,
+                                 timeout_seconds = 3600L,
+                                 max_workers = 4L) {
+  api_url <- paste0(api_url, "/upload")
+
+  if (!file.exists(file_path)) stop("Upload file not found: ", file_path)
+
+  size <- file.info(file_path)$size
+  max_bytes <- .MAX_UPLOAD_BYTES[[file_kind]]
+
+  if (is.null(max_bytes) || size > max_bytes) {
+    stop(file_kind, " exceeds upload limit: ", size, " bytes (max ", max_bytes, ")")
+  }
+
+  connection_timeout <- 30L
+
+  # Step 1 – Initiate (empty POST; explicit empty body for compatibility)
+  init_resp <- .make_req(api_url, paste0(file_kind, "/initiate"), auth_token) |>
+    req_method("POST") |>
+    httr2::req_body_raw(raw(0), type = "application/json") |>
+    req_timeout(connection_timeout) |>
+    req_perform() |>
+    resp_body_json()
+
+  upload_id <- init_resp$upload_id
+  chunk_size <- as.integer(init_resp$chunk_size_bytes %||% (5L * 1024L * 1024L))
+  server_max <- init_resp$max_size_bytes
+  if (!is.null(server_max) && length(server_max) > 0) {
+    server_max_n <- as.numeric(server_max)[1]
+    if (!is.na(server_max_n) && size > server_max_n) {
+      stop(file_kind, " exceeds server limit: ", size, " bytes > ", server_max_n)
+    }
+  }
+
+  n_chunks <- if (size > 0) as.integer(ceiling(size / chunk_size)) else 0L
+
+  # Step 2 – Upload chunks (future for cross-platform parallel, req_retry for resilience)
+  if (n_chunks > 0) {
+    effective_workers <- min(max_workers, n_chunks)
+    chunk_idxs <- seq_len(n_chunks) - 1L
+
+    .upload_one_chunk <- function(chunk_idx) {
+      tryCatch({
+        con <- file(file_path, "rb")
+        on.exit(close(con), add = TRUE)
+        offset <- chunk_idx * chunk_size
+        read_size <- min(chunk_size, size - offset)
+        seek(con, offset)
+        chunk_data <- readBin(con, what = "raw", n = read_size)
+        .make_req(api_url, paste0(upload_id, "/chunk/", chunk_idx), auth_token) |>
+          req_method("PUT") |>
+          httr2::req_body_raw(chunk_data, type = "application/octet-stream") |>
+          req_timeout(timeout_seconds) |>
+          httr2::req_retry(
+            max_tries = length(.CHUNK_UPLOAD_BACKOFF_SECS) + 1L,
+            retry_on_failure = TRUE,
+            is_transient = function(resp) resp_status(resp) %in% .CHUNK_UPLOAD_TRANSIENT_STATUSES,
+            backoff = function(tries) .CHUNK_UPLOAD_BACKOFF_SECS[min(tries, length(.CHUNK_UPLOAD_BACKOFF_SECS))]
+          ) |>
+          req_perform()
+        list(ok = TRUE)
+      }, error = function(e) {
+        list(ok = FALSE, chunk_idx = chunk_idx, message = conditionMessage(e))
+      })
+    }
+
+    if (effective_workers > 1L && requireNamespace("furrr", quietly = TRUE)) {
+      chunk_results <- furrr::future_map(chunk_idxs, .upload_one_chunk)
+    } else {
+      chunk_results <- purrr::map(chunk_idxs, .upload_one_chunk)
+    }
+    failed <- which(!vapply(chunk_results, function(r) is.list(r) && isTRUE(r$ok), logical(1)))
+    if (length(failed) > 0L) {
+      r <- chunk_results[[failed[1L]]]
+      stop("Upload chunk ", r$chunk_idx, " failed: ", r$message)
+    }
+  }
+  # Step 3 – Complete (empty POST; explicit empty body for compatibility)
+  complete_resp <- .make_req(api_url, paste0(upload_id, "/complete"), auth_token) |>
+    req_method("POST") |>
+    httr2::req_body_raw(raw(0), type = "application/json") |>
+    req_timeout(connection_timeout) |>
+    req_perform() |>
+    resp_body_json()
+
+  complete_resp
+}
+
+
+.upload_obs_duckdb <- function(api_url, auth_token, file_path, timeout_seconds = 3600L, max_workers = 4L) {
+  .upload_file_chunked(api_url, auth_token, "obs_duckdb", file_path, timeout_seconds, max_workers)
+}
+
+.upload_vars_h5 <- function(api_url, auth_token, file_path, timeout_seconds = 3600L, max_workers = 4L) {
+  .upload_file_chunked(api_url, auth_token, "vars_h5", file_path, timeout_seconds, max_workers)
+}
+
 # Submit a new job
 .submit_job <- function(payload, api_url, auth_token = NULL){
 
-  submit_url <- file.path(api_url, "annotate")
+  submit_url <- .url_path(api_url, "annotate")
   log_info("Submitting job to CyteType...")
 
   tryCatch({
@@ -64,7 +187,7 @@
   log_info("CyteType job (id: {job_id}) submitted. Polling for results...")
   Sys.sleep(5)
 
-  report_url <- file.path(api_url, "report", job_id)
+  report_url <- .url_path(api_url, "report", job_id)
 
   # Info for auth token uses
   if (!is.null(auth_token)) {
@@ -121,7 +244,7 @@
                log_info("Job {job_id} completed successfully.")
 
                if (!is.list(status_response$result)) {
-                 stop(cytetype_api_error("api", paste("Expected list result, got", class(status_response$result))))
+                 stop(cytetype_api_error(message = paste("Expected list result, got", class(status_response$result)), call = "api"))
                }
 
                return(status_response$result)
