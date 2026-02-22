@@ -272,6 +272,7 @@ CyteTypeR <- function(obj,
   )
 
   artifact_paths <- c(vars_h5_path, obs_duckdb_path)
+  build_succeeded <- FALSE
 
   tryCatch({
     tryCatch({
@@ -287,43 +288,61 @@ CyteTypeR <- function(obj,
       )
       feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
       .save_vars_h5(vars_h5_path, mat, feature_df = feature_df, feature_names = feature_names)
+      log_info("Built vars.h5 successfully.")
 
       log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
       .save_obs_duckdb(obs_duckdb_path, obj@meta.data)
+      log_info("Built obs.duckdb successfully.")
 
-      log_info("Uploading obs.duckdb (cell metadata)...")
-      cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path, upload_timeout_seconds)
+      build_succeeded <- TRUE
+    }, error = function(e) {
+      if (require_artifacts) {
+        log_error("Building artifacts failed: {conditionMessage(e)}")
+        stop(e)
+      } else {
+        log_warn(paste(
+          "Building artifacts failed. Continuing without artifacts.",
+          "Set `require_artifacts=TRUE` to raise this as an error.",
+          "Original error:", conditionMessage(e)
+        ))
+      }
+    })
 
-      log_info("Uploading vars.h5 (feature expression)...")
-      feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path, upload_timeout_seconds)
+    if (build_succeeded) {
+      tryCatch({
+        log_info("Uploading obs.duckdb (cell metadata)...")
+        cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path, upload_timeout_seconds)
+        log_info("Uploaded obs.duckdb successfully.")
 
-      query_list$uploaded_files <- list(
-        obs_duckdb = cell_metadata_upload$upload_id,
-        vars_h5 = feature_expression_upload$upload_id
-      )
-      
+        log_info("Uploading vars.h5 (feature expression)...")
+        feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path, upload_timeout_seconds)
+        log_info("Uploaded vars.h5 successfully.")
+
+        query_list$uploaded_files <- list(
+          obs_duckdb = cell_metadata_upload$upload_id,
+          vars_h5 = feature_expression_upload$upload_id
+        )
       }, error = function(e) {
         if (require_artifacts) {
-          log_error("Artifact build failed: {e}")
+          log_error("Uploading artifacts failed: {conditionMessage(e)}")
           stop(e)
         } else {
-          log_warning(paste(
-            "Artifact build failed. Continuing without artifacts.",
+          log_warn(paste(
+            "Uploading artifacts failed. Continuing without artifacts.",
             "Set `require_artifacts=TRUE` to raise this as an error.",
             "Original error:", conditionMessage(e)
           ))
         }
       })
-
+    }
   }, error = function(e) {
-    log_error("Error uploading artifacts: {e}")
     stop(e)
   }, finally = {
-      if (cleanup_artifacts && length(artifact_paths) > 0) {
-        on.exit({
-          for (f in artifact_paths) tryCatch(file.remove(f), error = function(e) NULL)
-        }, add = TRUE)
-      }
+    if (cleanup_artifacts && length(artifact_paths) > 0) {
+      on.exit({
+        for (f in artifact_paths) tryCatch(file.remove(f), error = function(e) NULL)
+      }, add = TRUE)
+    }
   })
 
   query_for_json <- .prepare_query_for_json(query_list)
