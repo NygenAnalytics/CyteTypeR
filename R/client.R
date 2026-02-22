@@ -1,6 +1,10 @@
 # Upload size limits (bytes): match Python API (vars_h5 10GB uses numeric to avoid integer overflow)
 .MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 10 * 1024 * 1024 * 1024)
 
+# Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
+.CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
+.CHUNK_UPLOAD_TRANSIENT_STATUSES <- c(500L, 502L, 503L, 504L)
+
 # URL path builder (avoids file.path backslashes on Windows)
 .url_path <- function(...) {
   x <- vapply(c(...), function(seg) gsub("^/+|/+$", "", as.character(seg)), character(1))
@@ -74,9 +78,10 @@
           httr2::req_body_raw(chunk_data, type = "application/octet-stream") |>
           req_timeout(timeout_seconds) |>
           httr2::req_retry(
-            max_tries = 3,
+            max_tries = length(.CHUNK_UPLOAD_BACKOFF_SECS) + 1L,
             retry_on_failure = TRUE,
-            is_transient = function(resp) resp_status(resp) == 500L
+            is_transient = function(resp) resp_status(resp) %in% .CHUNK_UPLOAD_TRANSIENT_STATUSES,
+            backoff = function(tries) .CHUNK_UPLOAD_BACKOFF_SECS[min(tries, length(.CHUNK_UPLOAD_BACKOFF_SECS))]
           ) |>
           req_perform()
         list(ok = TRUE)
