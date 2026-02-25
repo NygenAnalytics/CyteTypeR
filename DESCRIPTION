@@ -21,6 +21,7 @@ Imports:
     methods,
     purrr,
     rhdf5,
+    rhdf5filters,
     Seurat,
     tibble,
     tidyr
@@ -30,5 +31,8 @@ Suggests:
     knitr,
     rmarkdown,
     testthat (>= 3.0.0)
+Remotes:
+    bioc::rhdf5,
+    bioc::rhdf5filters
 Config/testthat/edition: 3
 VignetteBuilder: knitr
