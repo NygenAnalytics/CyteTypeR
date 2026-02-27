@@ -47,11 +47,11 @@
     if (is.logical(vec)) {
       storage.mode(vec) <- "integer"
       if (any(is.na(vec))) vec[is.na(vec)] <- -1L
-      rhdf5::h5writeDataset(vec, h5loc = fid, name = col_path, level = 5L)
+      rhdf5::h5writeDataset(vec, h5loc = fid, name = col_path)
     } else if (is.numeric(vec)) {
-      rhdf5::h5writeDataset(as.double(vec), h5loc = fid, name = col_path, level = 5L)
+      rhdf5::h5writeDataset(as.double(vec), h5loc = fid, name = col_path)
     } else {
-      rhdf5::h5writeDataset(.as_string_values(vec), h5loc = fid, name = col_path, level = 5L)
+      rhdf5::h5writeDataset(.as_string_values(vec), h5loc = fid, name = col_path)
     }
   }
   invisible(NULL)
@@ -62,6 +62,10 @@
   m <- as(mat, "CsparseMatrix")
   n_obs <- nrow(m)
   n_vars <- ncol(m)
+
+  if (!requireNamespace("rhdf5filters", quietly = TRUE)) {
+    stop("Package 'rhdf5filters' is required to write vars.h5 with LZ4 compression.")
+  }
 
   if (is.null(col_batch)) {
     col_batch <- max(1L, as.integer(100000000 / max(n_obs, 1)))
@@ -77,8 +81,8 @@
   on.exit(rhdf5::H5Fclose(fid), add = TRUE)
 
   rhdf5::h5createGroup(fid, "vars")
-  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = fid, name = "vars/n_obs")
-  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = fid, name = "vars/n_vars")
+  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = out_file, name = "n_obs", h5loc = "vars")
+  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = out_file, name = "n_vars", h5loc = "vars")
 
   # Create extensible datasets (equivalent to maxshape=(None,) in h5py)
   max_nnz <- n_obs * n_vars  # upper bound
@@ -88,7 +92,7 @@
     maxdims = rhdf5::H5Sunlimited(),
     chunk = chunk_size,
     H5type = "H5T_NATIVE_INT32",
-    level = 0L  # LZ4 not directly available, use level for deflate or 0 for none
+    filter = "BLOSC_LZ4"
   )
   rhdf5::h5createDataset(
     fid, "vars/data",
@@ -96,7 +100,7 @@
     maxdims = rhdf5::H5Sunlimited(),
     chunk = chunk_size,
     H5type = "H5T_NATIVE_FLOAT",
-    level = 5L
+    filter = "BLOSC_LZ4"
   )
 
   indptr <- 0L
@@ -132,7 +136,14 @@
     indptr <- c(indptr, new_indptr)
   }
 
-  rhdf5::h5writeDataset(as.integer(indptr), h5loc = fid, name = "vars/indptr", level = 5L)
+  rhdf5::h5createDataset(
+    fid, "vars/indptr",
+    dims = length(indptr),
+    H5type = "H5T_NATIVE_INT32",
+    chunk = min(chunk_size, length(indptr)),
+    filter = "BLOSC_LZ4"
+  )
+  rhdf5::h5writeDataset(as.integer(indptr), h5loc = fid, name = "vars/indptr")
 
   if (!is.null(feature_df)) {
     .write_var_metadata(fid, n_cols = n_vars, feature_df = feature_df, feature_names = feature_names)

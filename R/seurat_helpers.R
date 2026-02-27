@@ -6,6 +6,29 @@
 #' @importFrom tibble tibble
 #' @importFrom Matrix rowSums
 #'
+# Resolve/validate Seurat RNA assay for RNA-seq workflows (strict).
+.resolve_seurat_assay_rna <- function(seurat_obj) {
+  assays <- tryCatch(names(seurat_obj@assays), error = function(e) character(0))
+  if (length(assays) == 0) stop("No assays found in Seurat object.")
+  if (!("RNA" %in% assays)) {
+    stop(
+      "This workflow requires an assay named 'RNA'. Available assays: ",
+      paste0(assays, collapse = ", "),
+      "."
+    )
+  }
+
+  default_assay <- tryCatch(Seurat::DefaultAssay(seurat_obj), error = function(e) NULL)
+  if (!is.null(default_assay) && nzchar(as.character(default_assay)) && default_assay != "RNA") {
+    warning(
+      "DefaultAssay(seurat_obj) is '", as.character(default_assay),
+      "'. Using assay='RNA' instead."
+    )
+  }
+
+  "RNA"
+}
+
 # Calculate Expression Percentages by Cluster
 .calculate_pcent <- function(
     seurat_obj,
@@ -14,6 +37,7 @@
     batch_size = 2000
 ){
   gene_names <- rownames(seurat_obj)
+  assay <- .resolve_seurat_assay_rna(seurat_obj)
   clusters <- seurat_obj[[group_key]][[group_key]]
   unique_clusters <- unique(clusters)
 
@@ -31,7 +55,11 @@
 
 
     batch_genes <- gene_names[start_idx:end_idx]
-    batch_expr_matrix <- GetAssayData(seurat_obj, layer = "data")[batch_genes, , drop = FALSE]
+    batch_expr_full <- tryCatch(
+      Seurat::GetAssayData(seurat_obj, assay = assay, layer = "data"),
+      error = function(e) Seurat::GetAssayData(seurat_obj, assay = assay, slot = "data")
+    )
+    batch_expr_matrix <- batch_expr_full[batch_genes, , drop = FALSE]
 
 
     for (cluster in unique_clusters) {
@@ -142,7 +170,13 @@
 .validate_gene_symbols <- function(seurat_obj, gene_symbols){
   gene_values <- tryCatch({
 
-    meta_features <- seurat_obj[["RNA"]]@meta.features
+    assay_name <- .resolve_seurat_assay_rna(seurat_obj)
+    assay_obj <- tryCatch(seurat_obj[[assay_name]], error = function(e) NULL)
+    meta_features <- tryCatch(
+      assay_obj@meta.features,
+      error = function(e) tryCatch(assay_obj@meta.data, error = function(e2) NULL)
+    )
+    if (is.null(meta_features)) stop("No feature metadata found on assay")
 
     symbols <- meta_features[[gene_symbols]]
 

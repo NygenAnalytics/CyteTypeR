@@ -277,14 +277,20 @@ CyteTypeR <- function(obj,
   tryCatch({
     tryCatch({
       log_info("Building vars.h5 from normalized counts (cells x features)...")
-      # GetAssayData returns genes x cells; API expects cells x genes (n_obs x n_vars).
-      mat <- Matrix::t(Seurat::GetAssayData(obj, layer = "data"))
-
-      default_assay <- Seurat::DefaultAssay(obj)
+      default_assay <- .resolve_seurat_assay_rna(obj)
+      # Seurat stores expression as features x cells; API expects cells x features (n_obs x n_vars).
+      expr_mat <- tryCatch(
+        Seurat::GetAssayData(obj, assay = default_assay, layer = "data"),
+        error = function(e) Seurat::GetAssayData(obj, assay = default_assay, slot = "data")
+      )
+      mat <- Matrix::t(expr_mat)
 
       feature_df <- tryCatch(
         as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.features),
-        error = function(e) NULL
+        error = function(e) tryCatch(
+          as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.data),
+          error = function(e2) NULL
+        )
       )
       feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
       .save_vars_h5(vars_h5_path, mat, feature_df = feature_df, feature_names = feature_names)
