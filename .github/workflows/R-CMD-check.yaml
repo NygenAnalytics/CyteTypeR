@@ -44,6 +44,10 @@ jobs:
           extra-packages: any::rcmdcheck
           needs: check
 
+      - name: Pin ggrepel for older R
+        if: matrix.config.r != 'release'
+        run: Rscript -e 'pak::pkg_install("cran/ggrepel@0.9.6")'
+
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true
