@@ -103,7 +103,7 @@
 
   # Initialize result list
   result <- setNames(
-    lapply(unique_groups, function(x) list()),
+    lapply(unique_groups, function(x) setNames(list(), character(0))),
     unique_groups
   )
 
