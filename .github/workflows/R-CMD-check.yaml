@@ -39,13 +39,16 @@ jobs:
           http-user-agent: ${{ matrix.config.http-user-agent }}
           use-public-rspm: true
 
-      - name: Pin ggrepel for older R
-        if: matrix.config.r != 'release'
-        run: Rscript -e 'install.packages("https://cran.r-project.org/src/contrib/Archive/ggrepel/ggrepel_0.9.6.tar.gz", repos = NULL, type = "source")'
-
       - uses: r-lib/actions/setup-r-dependencies@v2
+        if: matrix.config.r == 'release'
         with:
           extra-packages: any::rcmdcheck
+          needs: check
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        if: matrix.config.r != 'release'
+        with:
+          extra-packages: any::rcmdcheck, cran/ggrepel@0.9.6
           needs: check
 
       - uses: r-lib/actions/check-r-package@v2
