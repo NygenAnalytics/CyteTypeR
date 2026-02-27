@@ -41,7 +41,7 @@ jobs:
 
       - name: Pin ggrepel for older R
         if: matrix.config.r != 'release'
-        run: Rscript -e 'pak::pkg_install("cran/ggrepel@0.9.6")'
+        run: Rscript -e 'install.packages("https://cran.r-project.org/src/contrib/Archive/ggrepel/ggrepel_0.9.6.tar.gz", repos = NULL, type = "source")'
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
