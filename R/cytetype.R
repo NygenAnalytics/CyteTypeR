@@ -89,7 +89,7 @@ PrepareCyteTypeR <- function(obj,
     # Map cluster ids to use those natural numbers
     names(group_metadata) <- cluster_map[names(group_metadata)]
 
-  } else{group_metadata <- list()
+  } else{group_metadata <- setNames(list(), character(0))
   }
   print(paste("Preparing marker genes with top",n_top_genes,"genes..."))
 
