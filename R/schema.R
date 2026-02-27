@@ -108,6 +108,14 @@ LLMModelConfig <- function(provider,
   mask_job_details <- if (is.null(nm)) rep(TRUE, length(query_list$input_data)) else !endsWith(nm, "jobDetails")
   query_list$input_data <- query_list$input_data[mask_job_details]
 
+  # Ensure fields the server expects as JSON objects serialize to {} not []
+  dict_fields <- c("clusterMetadata", "clusterLabels", "infoTags", "expressionData")
+  for (field in dict_fields) {
+    val <- query_list$input_data[[field]]
+    if (is.list(val) && length(val) == 0 && is.null(names(val))) {
+      query_list$input_data[[field]] <- setNames(list(), character(0))
+    }
+  }
 
   return(query_list)
 }
@@ -142,7 +150,7 @@ LLMModelConfig <- function(provider,
 InputData <- function(studyInfo = "",
                       infoTags = list(),
                       clusterLabels = list(),
-                      clusterMetadata = list(),
+                      clusterMetadata = setNames(list(), character(0)),
                       markerGenes = list(),
                       visualizationData = NULL,
                       expressionData = list(),
