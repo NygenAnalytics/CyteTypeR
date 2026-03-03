@@ -484,4 +484,3 @@ GetResults <- function(obj = NULL, job_id = NULL, results_prefix = "cytetype", a
 
 
 
-

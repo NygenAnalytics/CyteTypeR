@@ -41,12 +41,15 @@
   connection_timeout <- 30L
 
   # Step 1 – Initiate (empty POST; explicit empty body for compatibility)
-  init_resp <- .make_req(api_url, paste0(file_kind, "/initiate"), auth_token) |>
-    req_method("POST") |>
-    httr2::req_body_raw(raw(0), type = "application/json") |>
-    req_timeout(connection_timeout) |>
-    req_perform() |>
-    resp_body_json()
+  init_resp <- tryCatch(
+    .make_req(api_url, paste0(file_kind, "/initiate"), auth_token) |>
+      req_method("POST") |>
+      httr2::req_body_raw(raw(0), type = "application/json") |>
+      req_timeout(connection_timeout) |>
+      req_perform() |>
+      resp_body_json(),
+    error = function(e) { .stop_if_rate_limited(e); stop(e) }
+  )
 
   upload_id <- init_resp$upload_id
   chunk_size <- as.integer(init_resp$chunk_size_bytes %||% (5L * 1024L * 1024L))
@@ -86,6 +89,7 @@
           req_perform()
         list(ok = TRUE)
       }, error = function(e) {
+        .stop_if_rate_limited(e)
         list(ok = FALSE, chunk_idx = chunk_idx, message = conditionMessage(e))
       })
     }
@@ -102,12 +106,15 @@
     }
   }
   # Step 3 – Complete (empty POST; explicit empty body for compatibility)
-  complete_resp <- .make_req(api_url, paste0(upload_id, "/complete"), auth_token) |>
-    req_method("POST") |>
-    httr2::req_body_raw(raw(0), type = "application/json") |>
-    req_timeout(connection_timeout) |>
-    req_perform() |>
-    resp_body_json()
+  complete_resp <- tryCatch(
+    .make_req(api_url, paste0(upload_id, "/complete"), auth_token) |>
+      req_method("POST") |>
+      httr2::req_body_raw(raw(0), type = "application/json") |>
+      req_timeout(connection_timeout) |>
+      req_perform() |>
+      resp_body_json(),
+    error = function(e) { .stop_if_rate_limited(e); stop(e) }
+  )
 
   complete_resp
 }
@@ -167,10 +174,8 @@
     return(as.character(job_id))
 
   }, error = function(e) {
-    # Log the error
+    .stop_if_rate_limited(e)
     cat("An error occurred:", conditionMessage(e), "\n")
-
-    # Return NA for any error
     return(NA_character_)
   })
 }
