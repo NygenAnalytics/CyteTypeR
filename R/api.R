@@ -53,6 +53,8 @@
     ))
 
   }, error = function(e) {
+    .stop_if_rate_limited(e)
+
     # Preserve authentication/authorization errors
     if (grepl("Authentication failed|Authorization failed", e$message)) {
       stop(e)

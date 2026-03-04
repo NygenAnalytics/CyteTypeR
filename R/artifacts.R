@@ -81,8 +81,8 @@
   on.exit(rhdf5::H5Fclose(fid), add = TRUE)
 
   rhdf5::h5createGroup(fid, "vars")
-  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = out_file, name = "n_obs", h5loc = "vars")
-  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = out_file, name = "n_vars", h5loc = "vars")
+  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = out_file, name = "n_obs", h5loc = "vars", asScalar = TRUE)
+  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = out_file, name = "n_vars", h5loc = "vars", asScalar = TRUE)
 
   # Create extensible datasets (equivalent to maxshape=(None,) in h5py)
   max_nnz <- n_obs * n_vars  # upper bound
