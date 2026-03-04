@@ -156,7 +156,14 @@ PrepareCyteTypeR <- function(obj,
       )
     )
     feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
-    .save_vars_h5(vars_h5_path, mat, feature_df = feature_df, feature_names = feature_names)
+    raw_mat <- tryCatch({
+      raw_expr <- tryCatch(
+        Seurat::GetAssayData(obj, assay = default_assay, layer = "counts"),
+        error = function(e) Seurat::GetAssayData(obj, assay = default_assay, slot = "counts")
+      )
+      Matrix::t(raw_expr)
+    }, error = function(e) NULL)
+    .save_vars_h5(vars_h5_path, mat, raw_mat = raw_mat, feature_df = feature_df, feature_names = feature_names)
     log_info("Built vars.h5 successfully.")
 
     log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")

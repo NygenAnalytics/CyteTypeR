@@ -57,11 +57,55 @@
   invisible(NULL)
 }
 
-.save_vars_h5 <- function(out_file, mat, feature_df = NULL, feature_names = NULL,
+# Write a sparse matrix under a named HDF5 group.
+# csr = FALSE (default): CSC — indptr over columns (genes), indices are row (cell) indices.
+# csr = TRUE:            CSR — transposes internally so indptr is over rows (cells), indices are column (gene) indices.
+.write_sparse_group <- function(fid, group, m, n_obs, col_batch, chunk_size, csr = FALSE) {
+  if (csr) m <- as(Matrix::t(m), "CsparseMatrix")
+  n_cols <- ncol(m)
+  rhdf5::h5createGroup(fid, group)
+  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = fid, name = "n_obs", h5loc = group, asScalar = TRUE)
+
+  rhdf5::h5createDataset(fid, paste0(group, "/indices"), dims = 0L,
+    maxdims = rhdf5::H5Sunlimited(), chunk = chunk_size,
+    H5type = "H5T_NATIVE_INT32", filter = "BLOSC_LZ4")
+  rhdf5::h5createDataset(fid, paste0(group, "/data"), dims = 0L,
+    maxdims = rhdf5::H5Sunlimited(), chunk = chunk_size,
+    H5type = "H5T_NATIVE_FLOAT", filter = "BLOSC_LZ4")
+
+  indptr <- 0L
+  current_size <- 0L
+  starts <- seq(1L, n_cols, by = col_batch)
+  for (start in starts) {
+    end <- min(start + col_batch - 1L, n_cols)
+    chunk <- as(m[, start:end, drop = FALSE], "CsparseMatrix")
+    chunk_indices <- as.integer(chunk@i)
+    chunk_data   <- as.numeric(chunk@x)
+    chunk_nnz    <- length(chunk_indices)
+    if (chunk_nnz > 0L) {
+      rhdf5::h5set_extent(fid, paste0(group, "/indices"), current_size + chunk_nnz)
+      rhdf5::h5writeDataset(chunk_indices, h5loc = fid, name = paste0(group, "/indices"),
+        index = list((current_size + 1L):(current_size + chunk_nnz)))
+      rhdf5::h5set_extent(fid, paste0(group, "/data"), current_size + chunk_nnz)
+      rhdf5::h5writeDataset(chunk_data, h5loc = fid, name = paste0(group, "/data"),
+        index = list((current_size + 1L):(current_size + chunk_nnz)))
+      current_size <- current_size + chunk_nnz
+    }
+    new_indptr <- as.integer(chunk@p[-1L] + indptr[length(indptr)])
+    indptr <- c(indptr, new_indptr)
+  }
+
+  rhdf5::h5createDataset(fid, paste0(group, "/indptr"), dims = length(indptr),
+    H5type = "H5T_NATIVE_INT32", chunk = min(chunk_size, length(indptr)),
+    filter = "BLOSC_LZ4")
+  rhdf5::h5writeDataset(as.integer(indptr), h5loc = fid, name = paste0(group, "/indptr"))
+  invisible(NULL)
+}
+
+.save_vars_h5 <- function(out_file, mat, raw_mat = NULL, feature_df = NULL, feature_names = NULL,
                           col_batch = NULL, min_chunk_size = 10000L) {
-  m <- as(mat, "CsparseMatrix")
-  n_obs <- nrow(m)
-  n_vars <- ncol(m)
+  n_obs <- nrow(mat)
+  n_vars <- ncol(mat)
 
   if (!requireNamespace("rhdf5filters", quietly = TRUE)) {
     stop("Package 'rhdf5filters' is required to write vars.h5 with LZ4 compression.")
@@ -80,70 +124,13 @@
   fid <- rhdf5::H5Fopen(out_file, flags = "H5F_ACC_RDWR")
   on.exit(rhdf5::H5Fclose(fid), add = TRUE)
 
-  rhdf5::h5createGroup(fid, "vars")
-  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = out_file, name = "n_obs", h5loc = "vars", asScalar = TRUE)
-  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = out_file, name = "n_vars", h5loc = "vars", asScalar = TRUE)
+  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = fid, name = "n_vars", h5loc = "/", asScalar = TRUE)
 
-  # Create extensible datasets (equivalent to maxshape=(None,) in h5py)
-  max_nnz <- n_obs * n_vars  # upper bound
-  rhdf5::h5createDataset(
-    fid, "vars/indices",
-    dims = 0L,
-    maxdims = rhdf5::H5Sunlimited(),
-    chunk = chunk_size,
-    H5type = "H5T_NATIVE_INT32",
-    filter = "BLOSC_LZ4"
-  )
-  rhdf5::h5createDataset(
-    fid, "vars/data",
-    dims = 0L,
-    maxdims = rhdf5::H5Sunlimited(),
-    chunk = chunk_size,
-    H5type = "H5T_NATIVE_FLOAT",
-    filter = "BLOSC_LZ4"
-  )
+  .write_sparse_group(fid, "vars", mat, n_obs, col_batch, chunk_size)
 
-  indptr <- 0L
-  current_size <- 0L
-
-  starts <- seq(1L, n_vars, by = col_batch)
-  for (start in starts) {
-    end <- min(start + col_batch - 1L, n_vars)
-    chunk <- as(m[, start:end, drop = FALSE], "CsparseMatrix")
-
-    chunk_indices <- as.integer(chunk@i)
-    chunk_data   <- as.numeric(chunk@x)
-    chunk_nnz    <- length(chunk_indices)
-
-    if (chunk_nnz > 0L) {
-      # Extend and write indices
-      rhdf5::h5set_extent(fid, "vars/indices", current_size + chunk_nnz)
-      rhdf5::h5writeDataset(
-        chunk_indices, h5loc = fid, name = "vars/indices",
-        index = list((current_size + 1L):(current_size + chunk_nnz))
-      )
-      # Extend and write data
-      rhdf5::h5set_extent(fid, "vars/data", current_size + chunk_nnz)
-      rhdf5::h5writeDataset(
-        chunk_data, h5loc = fid, name = "vars/data",
-        index = list((current_size + 1L):(current_size + chunk_nnz))
-      )
-      current_size <- current_size + chunk_nnz
-    }
-
-    # Accumulate indptr (skip first element after first chunk)
-    new_indptr <- as.integer(chunk@p[-1L] + indptr[length(indptr)])
-    indptr <- c(indptr, new_indptr)
+  if (!is.null(raw_mat)) {
+    .write_sparse_group(fid, "raw", raw_mat, n_obs, col_batch, chunk_size, csr = TRUE)
   }
-
-  rhdf5::h5createDataset(
-    fid, "vars/indptr",
-    dims = length(indptr),
-    H5type = "H5T_NATIVE_INT32",
-    chunk = min(chunk_size, length(indptr)),
-    filter = "BLOSC_LZ4"
-  )
-  rhdf5::h5writeDataset(as.integer(indptr), h5loc = fid, name = "vars/indptr")
 
   if (!is.null(feature_df)) {
     .write_var_metadata(fid, n_cols = n_vars, feature_df = feature_df, feature_names = feature_names)
