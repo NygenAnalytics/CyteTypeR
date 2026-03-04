@@ -210,7 +210,12 @@
   if (!inherits(seurat_obj, "Seurat")){
     stop("Please provide a Seurat Object")
   }
+
   .validate_gene_symbols(seurat_obj,gene_symbols)
+
+  if (!(group_key %in% names(seurat_obj@meta.data))){
+    stop("Please provide a valid group key that exists in the Seurat object's meta.data.")
+  }
 
   if (!(coordinates_key %in% names(seurat_obj@reductions))){
     log_info("Coordinates key {coordinates_key} not found in reductions.")
