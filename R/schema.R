@@ -117,6 +117,11 @@ LLMModelConfig <- function(provider,
     }
   }
 
+  query_list$input_data$build_succeeded <- NULL
+  query_list$input_data$vars_h5_path <- NULL
+  query_list$input_data$obs_duckdb_path <- NULL
+  query_list$input_data$group_key <- NULL
+
   return(query_list)
 }
 
