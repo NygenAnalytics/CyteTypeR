@@ -117,10 +117,16 @@ PrepareCyteTypeR <- function(obj,
     stop("Invalid marker genes, some clusters have fewer than 5 markers")
   }
 
-  print("Preparing visualisation data...")
-  visualization_data <- .sample_visualization_data(
-    obj, group_key, coordinates_key, cluster_map, max_cells_per_group
-  )
+  coords <- NULL
+  visualization_data <- NULL
+  tryCatch({
+    coords <- Seurat::Embeddings(obj, reduction = coordinates_key)
+    print("Preparing visualisation data...")
+    visualization_data <- .sample_visualization_data(obj, group_key, coordinates_key, cluster_map, max_cells_per_group)
+  }, error = function(e) {
+    log_warn(paste("Could not extract coordinates for reduction '", coordinates_key,
+                   "'. Continuing without visualization data. Error:", conditionMessage(e)))
+  })
 
   print("Calculating expression percentages...")
   expression_percentages <- .calculate_pcent(obj, group_key, cluster_map, pcent_batch_size)
@@ -154,7 +160,9 @@ PrepareCyteTypeR <- function(obj,
     log_info("Built vars.h5 successfully.")
 
     log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
-    .save_obs_duckdb(obs_duckdb_path, obj@meta.data)
+    
+    .save_obs_duckdb(obs_duckdb_path, obj@meta.data,
+                     coordinates = coords, coordinates_key = coordinates_key)
     log_info("Built obs.duckdb successfully.")
 
     build_succeeded <- TRUE

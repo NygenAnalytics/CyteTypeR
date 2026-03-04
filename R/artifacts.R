@@ -152,7 +152,8 @@
   invisible(out_file)
 }
 
-.save_obs_duckdb <- function(out_file, obs_df, table_name = "obs",
+.save_obs_duckdb <- function(out_file, obs_df, coordinates = NULL, coordinates_key = NULL,
+                             table_name = "obs",
                              threads = "4", memory_limit = "4GB", temp_directory = "tmp/duckdb") {
   if (!requireNamespace("duckdb", quietly = TRUE)) {
     stop("Package 'duckdb' is required to build obs.duckdb. Install with: install.packages('duckdb')")
@@ -160,10 +161,23 @@
   if (!grepl("^[A-Za-z_][A-Za-z0-9_]*$", table_name)) {
     stop("Invalid table_name. Use letters, numbers, and underscores only.")
   }
+
+  df <- as.data.frame(obs_df)
+
+  if (!is.null(coordinates) && !is.null(coordinates_key)) {
+    coords <- as.matrix(coordinates)
+    if (ncol(coords) >= 2 && nrow(coords) == nrow(df)) {
+      col1 <- paste0("__vis_coordinates_", coordinates_key, "_1")
+      col2 <- paste0("__vis_coordinates_", coordinates_key, "_2")
+      df[[col1]] <- as.numeric(coords[, 1])
+      df[[col2]] <- as.numeric(coords[, 2])
+    }
+  }
+
   if (file.exists(out_file)) file.remove(out_file)
   config <- list(threads = as.character(threads), memory_limit = memory_limit, temp_directory = temp_directory)
   con <- duckdb::dbConnect(duckdb::duckdb(), out_file, config = config)
   on.exit(duckdb::dbDisconnect(con, shutdown = TRUE), add = TRUE)
-  duckdb::dbWriteTable(con, table_name, as.data.frame(obs_df), overwrite = TRUE)
+  duckdb::dbWriteTable(con, table_name, df, overwrite = TRUE)
   invisible(out_file)
 }
