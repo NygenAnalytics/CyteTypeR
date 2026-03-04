@@ -31,7 +31,7 @@ print.cytetype_api_error <- function(x, ...) {
     parsed <- .parse_server_error(e$resp)
     if (!is.null(parsed) && parsed$error_code == "RATE_LIMIT_EXCEEDED") {
       stop(
-        "Rate limit exceeded: ", parsed$message,
+        parsed$message,
         "\nUse your own LLM API key via llm_configs to bypass free-tier limits, ",
         "or wait before retrying.",
         call. = FALSE
