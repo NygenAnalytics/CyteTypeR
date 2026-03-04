@@ -14,7 +14,9 @@ PrepareCyteTypeR(
   min_percentage = 10,
   pcent_batch_size = 2000,
   coordinates_key = "umap",
-  max_cells_per_group = 1000
+  max_cells_per_group = 1000,
+  vars_h5_path = "vars.h5",
+  obs_duckdb_path = "obs.duckdb"
 )
 }
 \arguments{
@@ -46,6 +48,12 @@ to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".}
 
 \item{max_cells_per_group}{Integer specifying maximum cells per cluster for
 subsampling (currently unused). Default is 1000.}
+
+\item{vars_h5_path}{Character string specifying the local file path for the
+generated vars.h5 artifact (feature expression). Default is \code{"vars.h5"}.}
+
+\item{obs_duckdb_path}{Character string specifying the local file path for the
+generated obs.duckdb artifact (cell metadata). Default is \code{"obs.duckdb"}.}
 }
 \value{
 Named list containing formatted data for CyteType analysis:
@@ -55,6 +63,10 @@ Named list containing formatted data for CyteType analysis:
 \item \code{markerGenes}: List of top marker genes per cluster
 \item \code{visualizationData}: Coordinates and cluster assignments for plotting
 \item \code{expressionData}: Expression percentages by cluster
+\item \code{group_key}: The metadata column name used for cluster assignments
+\item \code{build_succeeded}: Logical indicating whether artifact files were built successfully
+\item \code{vars_h5_path}: Path to the generated vars.h5 file
+\item \code{obs_duckdb_path}: Path to the generated obs.duckdb file
 }
 }
 \description{
@@ -71,6 +83,8 @@ The function performs the following steps:
 \item Filters and selects top marker genes per cluster
 \item Extracts dimensional reduction coordinates for visualization
 \item Calculates expression percentages across clusters
+\item Builds a vars.h5 artifact from the normalized expression matrix
+\item Builds an obs.duckdb artifact from the cell metadata
 }
 
 Clusters are renumbered sequentially (1, 2, 3, ...) to ensure consistent
