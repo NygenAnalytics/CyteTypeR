@@ -24,6 +24,10 @@
 #'   to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".
 #' @param max_cells_per_group Integer specifying maximum cells per cluster for
 #'   subsampling (currently unused). Default is 1000.
+#' @param vars_h5_path Character string specifying the local file path for the
+#'   generated vars.h5 artifact (feature expression). Default is `"vars.h5"`.
+#' @param obs_duckdb_path Character string specifying the local file path for the
+#'   generated obs.duckdb artifact (cell metadata). Default is `"obs.duckdb"`.
 #'
 #' @return Named list containing formatted data for CyteType analysis:
 #'   \itemize{
@@ -32,6 +36,10 @@
 #'     \item `markerGenes`: List of top marker genes per cluster
 #'     \item `visualizationData`: Coordinates and cluster assignments for plotting
 #'     \item `expressionData`: Expression percentages by cluster
+#'     \item `group_key`: The metadata column name used for cluster assignments
+#'     \item `build_succeeded`: Logical indicating whether artifact files were built successfully
+#'     \item `vars_h5_path`: Path to the generated vars.h5 file
+#'     \item `obs_duckdb_path`: Path to the generated obs.duckdb file
 #'   }
 #'
 #' @details
@@ -42,6 +50,8 @@
 #' 4. Filters and selects top marker genes per cluster
 #' 5. Extracts dimensional reduction coordinates for visualization
 #' 6. Calculates expression percentages across clusters
+#' 7. Builds a vars.h5 artifact from the normalized expression matrix
+#' 8. Builds an obs.duckdb artifact from the cell metadata
 #'
 #' Clusters are renumbered sequentially (1, 2, 3, ...) to ensure consistent
 #' formatting regardless of original cluster naming.
@@ -74,7 +84,9 @@ PrepareCyteTypeR <- function(obj,
                              min_percentage = 10,
                              pcent_batch_size = 2000,
                              coordinates_key = "umap",
-                             max_cells_per_group = 1000
+                             max_cells_per_group = 1000,
+                             vars_h5_path = "vars.h5",
+                             obs_duckdb_path = "obs.duckdb"
 ){
   .validate_seurat(obj, group_key, gene_symbols, coordinates_key)
 
@@ -117,13 +129,49 @@ PrepareCyteTypeR <- function(obj,
   cluster_map <- as.list(as.character(sorted_clusters))
   names(cluster_map) <- as.character(1:length(sorted_clusters))
 
+  # build artefacts for upload
+  build_succeeded <- FALSE
+
+  tryCatch({
+    log_info("Building vars.h5 from normalized counts (cells x features)...")
+    default_assay <- .resolve_seurat_assay_rna(obj)
+    # Seurat stores expression as features x cells; API expects cells x features (n_obs x n_vars).
+    expr_mat <- tryCatch(
+      Seurat::GetAssayData(obj, assay = default_assay, layer = "data"),
+      error = function(e) Seurat::GetAssayData(obj, assay = default_assay, slot = "data")
+    )
+    mat <- Matrix::t(expr_mat)
+
+    feature_df <- tryCatch(
+      as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.features),
+      error = function(e) tryCatch(
+        as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.data),
+        error = function(e2) NULL
+      )
+    )
+    feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
+    .save_vars_h5(vars_h5_path, mat, feature_df = feature_df, feature_names = feature_names)
+    log_info("Built vars.h5 successfully.")
+
+    log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
+    .save_obs_duckdb(obs_duckdb_path, obj@meta.data)
+    log_info("Built obs.duckdb successfully.")
+
+    build_succeeded <- TRUE
+  }, error = function(e) {
+    log_error("Error building artifacts: {conditionMessage(e)}")
+  })
+
   prepped_data <- list(
     clusterLabels = cluster_map,
     clusterMetadata = group_metadata,
     markerGenes = marker_genes,
     visualizationData = visualization_data,
     expressionData = expression_percentages,
-    group_key = group_key
+    group_key = group_key,
+    build_succeeded = build_succeeded,
+    vars_h5_path = vars_h5_path,
+    obs_duckdb_path = obs_duckdb_path
   )
   # Store query
   obj@misc$query <- prepped_data
@@ -152,10 +200,7 @@ PrepareCyteTypeR <- function(obj,
 #' @param auth_token Optional character. Bearer token for API auth. If `NULL`, uses none. Default is `NULL`.
 #' @param save_query Logical. Whether to save the request payload to a JSON file. Default is `TRUE`.
 #' @param query_filename Character. Filename for the saved query when `save_query` is `TRUE`. Default is `"query.json"`.
-#' @param vars_h5_path Character. Local path for the generated vars.h5 artifact. Default is `"vars.h5"`.
-#' @param obs_duckdb_path Character. Local path for the generated obs.duckdb artifact. Default is `"obs.duckdb"`.
 #' @param upload_timeout_seconds Integer. Socket read timeout (seconds) for each artifact upload. Default is 3600.
-#' @param cleanup_artifacts Logical. If `TRUE`, delete generated artifact files after the run (success or failure). Default is `FALSE`.
 #' @param require_artifacts Logical. If `TRUE`, an error during artifact build or upload stops the run; if `FALSE`, failures are skipped and annotation continues without artifacts. Default is `TRUE`.
 #' @param show_progress Logical. Whether to show progress (spinner and cluster status). Set `FALSE` to disable. Default is `TRUE`.
 #' @param override_existing_results Logical. If `TRUE`, allow overwriting existing results with the same `results_prefix`. If `FALSE` and results exist, an error is raised. Default is `FALSE`.
@@ -212,10 +257,7 @@ CyteTypeR <- function(obj,
                       auth_token = NULL,
                       save_query = TRUE,
                       query_filename = "query.json",
-                      vars_h5_path = "vars.h5",
-                      obs_duckdb_path = "obs.duckdb",
                       upload_timeout_seconds = 3600L,
-                      cleanup_artifacts = FALSE,
                       require_artifacts = TRUE,
                       show_progress = TRUE,
                       override_existing_results = FALSE
@@ -271,100 +313,53 @@ CyteTypeR <- function(obj,
     llm_configs = llm_configs
   )
 
-  artifact_paths <- c(vars_h5_path, obs_duckdb_path)
-  build_succeeded <- FALSE
+  build_succeeded <- isTRUE(prepped_data$build_succeeded)
 
-  tryCatch({
+  if (!build_succeeded && require_artifacts) {
+    stop("Artifact build did not succeed. Set require_artifacts = FALSE to continue without artifacts.")
+  }
+
+  if (build_succeeded) {
     tryCatch({
-      log_info("Building vars.h5 from normalized counts (cells x features)...")
-      default_assay <- .resolve_seurat_assay_rna(obj)
-      # Seurat stores expression as features x cells; API expects cells x features (n_obs x n_vars).
-      expr_mat <- tryCatch(
-        Seurat::GetAssayData(obj, assay = default_assay, layer = "data"),
-        error = function(e) Seurat::GetAssayData(obj, assay = default_assay, slot = "data")
+      vars_h5_path <- prepped_data$vars_h5_path
+      obs_duckdb_path <- prepped_data$obs_duckdb_path
+
+      log_info("Uploading obs.duckdb (cell metadata)...")
+      cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path, upload_timeout_seconds)
+      log_info("Uploaded obs.duckdb successfully.")
+
+      log_info("Uploading vars.h5 (feature expression)...")
+      feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path, upload_timeout_seconds)
+      log_info("Uploaded vars.h5 successfully.")
+
+      query_list$uploaded_files <- list(
+        obs_duckdb = cell_metadata_upload$upload_id,
+        vars_h5 = feature_expression_upload$upload_id
       )
-      mat <- Matrix::t(expr_mat)
-
-      feature_df <- tryCatch(
-        as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.features),
-        error = function(e) tryCatch(
-          as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.data),
-          error = function(e2) NULL
-        )
-      )
-      feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
-      .save_vars_h5(vars_h5_path, mat, feature_df = feature_df, feature_names = feature_names)
-      log_info("Built vars.h5 successfully.")
-
-      log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
-      .save_obs_duckdb(obs_duckdb_path, obj@meta.data)
-      log_info("Built obs.duckdb successfully.")
-
-      build_succeeded <- TRUE
     }, error = function(e) {
       if (require_artifacts) {
-        log_error("Building artifacts failed: {conditionMessage(e)}")
+        log_error("Uploading artifacts failed: {conditionMessage(e)}")
         stop(e)
       } else {
         log_warn(paste(
-          "Building artifacts failed. Continuing without artifacts.",
+          "Uploading artifacts failed. Continuing without artifacts.",
           "Set `require_artifacts=TRUE` to raise this as an error.",
           "Original error:", conditionMessage(e)
         ))
       }
     })
-
-    if (build_succeeded) {
-      tryCatch({
-        log_info("Uploading obs.duckdb (cell metadata)...")
-        cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path, upload_timeout_seconds)
-        log_info("Uploaded obs.duckdb successfully.")
-
-        log_info("Uploading vars.h5 (feature expression)...")
-        feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path, upload_timeout_seconds)
-        log_info("Uploaded vars.h5 successfully.")
-
-        query_list$uploaded_files <- list(
-          obs_duckdb = cell_metadata_upload$upload_id,
-          vars_h5 = feature_expression_upload$upload_id
-        )
-      }, error = function(e) {
-        if (require_artifacts) {
-          log_error("Uploading artifacts failed: {conditionMessage(e)}")
-          stop(e)
-        } else {
-          log_warn(paste(
-            "Uploading artifacts failed. Continuing without artifacts.",
-            "Set `require_artifacts=TRUE` to raise this as an error.",
-            "Original error:", conditionMessage(e)
-          ))
-        }
-      })
-    }
-  }, error = function(e) {
-    stop(e)
-  }, finally = {
-    if (cleanup_artifacts && length(artifact_paths) > 0) {
-      on.exit({
-        for (f in artifact_paths) tryCatch(file.remove(f), error = function(e) NULL)
-      }, add = TRUE)
-    }
-  })
-
+  }
+  
   query_for_json <- .prepare_query_for_json(query_list)
-  if (save_query){
-  write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
-}
+  if (save_query) {
+    write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
+  }
 
   job_id <- .submit_job(query_for_json, api_url, auth_token)
 
-  report_url <- file.path(api_url, 'report', job_id)
-  job_details <- list(
-    job_id = job_id,
-    report_url = report_url,
-    api_url = api_url,
-    auth_token = auth_token
-  )
+  if (is.na(job_id)) {
+    stop("Job submission failed.")
+  }
 
   obj <- .store_job_details_seurat(obj, job_id, api_url, results_prefix, group_key, prepped_data$clusterLabels)
 
@@ -399,6 +394,8 @@ CyteTypeR <- function(obj,
 
     return(obj)
   }
+
+  return(obj)
 }
 
 #' Retrieve CyteType Analysis Results
@@ -459,10 +456,26 @@ GetResults <- function(obj = NULL, job_id = NULL, results_prefix = "cytetype", a
 }
 
 
-
-
-
 #' Clean Up Artifacts
+#'
+#' @description
+#' Cleans up the artifact files after the run.
+#'
+#' @param prepped_data Named list containing prepared data from `PrepareCyteTypeR()`.
+#' @importFrom logger log_info log_warn
+#' @export
+CleanUpArtifacts <- function(prepped_data) {
+  if (isTRUE(prepped_data$build_succeeded)) {
+    log_info("Cleaning up artifact files...")
+    tryCatch(file.remove(prepped_data$vars_h5_path), error = function(e) NULL)
+    log_info("Removed vars.h5 file.")
+    tryCatch(file.remove(prepped_data$obs_duckdb_path), error = function(e) NULL)
+    log_info("Removed obs.duckdb file.")
+    log_info("Artifact files cleaned up successfully.")
+  } else {
+    log_warn("Artifact files not built. No cleanup performed.")
+  }
+}
 
 
 
