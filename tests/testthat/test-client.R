@@ -1,7 +1,7 @@
 test_that(".MAX_UPLOAD_BYTES has expected limits", {
   lim <- CyteTypeR:::.MAX_UPLOAD_BYTES
   expect_identical(lim$obs_duckdb, 100L * 1024L * 1024L)
-  expect_equal(lim$vars_h5, 10 * 1024 * 1024 * 1024)
+  expect_equal(lim$vars_h5, 50 * 1024 * 1024 * 1024)
   expect_true(is.numeric(lim$vars_h5), info = "vars_h5 must be numeric to avoid integer overflow")
 })
 
