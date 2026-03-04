@@ -65,6 +65,7 @@
   n_cols <- ncol(m)
   rhdf5::h5createGroup(fid, group)
   rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = fid, name = "n_obs", h5loc = group, asScalar = TRUE)
+  rhdf5::h5writeAttribute(as.integer(n_cols), h5obj = fid, name = "n_vars", h5loc = group, asScalar = TRUE)
 
   rhdf5::h5createDataset(fid, paste0(group, "/indices"), dims = 0L,
     maxdims = rhdf5::H5Sunlimited(), chunk = chunk_size,
@@ -123,8 +124,6 @@
   rhdf5::h5createFile(out_file)
   fid <- rhdf5::H5Fopen(out_file, flags = "H5F_ACC_RDWR")
   on.exit(rhdf5::H5Fclose(fid), add = TRUE)
-
-  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = fid, name = "n_vars", h5loc = "/", asScalar = TRUE)
 
   .write_sparse_group(fid, "vars", mat, n_obs, col_batch, chunk_size)
 
