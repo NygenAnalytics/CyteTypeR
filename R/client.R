@@ -38,7 +38,7 @@
     stop(file_kind, " exceeds upload limit: ", size, " bytes (max ", max_bytes, ")")
   }
 
-  connection_timeout <- 30L
+  connection_timeout <- 72L
 
   # Step 1 – Initiate (empty POST; explicit empty body for compatibility)
   init_resp <- tryCatch(
@@ -145,7 +145,7 @@
       req_method("POST") |>
       req_body_json(payload, na = "string") |>
       req_headers("Content-Type" = "application/json") |>
-      req_timeout(60)
+      req_timeout(180)
 
     # Add auth token if provided
     if (!is.null(auth_token)) {
