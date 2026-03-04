@@ -84,9 +84,9 @@ results <- CyteTypeR(
 
 Each analysis generates an HTML report documenting annotation decisions, marker genes, confidence scores, and Cell Ontology mappings:
 
-<img width="1000" alt="CyteType Report Example" src="https://github.com/user-attachments/assets/9f0f4b36-2dd7-4cb8-93e3-ecda9c97a930" />
+<img width="1000" alt="CyteType Report Example" src="https://github.com/user-attachments/assets/e5373fdd-7173-42db-b863-76a1e8ecfe01" />
 
-**[View example report with embedded chat interface](https://prod.cytetype.nygen.io/report/6420a807-8bf3-4c33-8731-7617edfc2ad0?v=251124)**
+**[View example report with embedded chat interface](https://prod.cytetype.nygen.io/report/e70e2883-7713-4121-94f2-5b57eabd1468?v=260303)**
 
 ---
 
