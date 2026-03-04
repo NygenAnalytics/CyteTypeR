@@ -1,5 +1,5 @@
-# Upload size limits (bytes): match Python API (vars_h5 10GB uses numeric to avoid integer overflow)
-.MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 10 * 1024 * 1024 * 1024)
+# Upload size limits: 100MB and 50GB respectively
+.MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 50L * 1024L * 1024L)
 
 # Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
 .CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
@@ -52,7 +52,7 @@
   )
 
   upload_id <- init_resp$upload_id
-  chunk_size <- as.integer(init_resp$chunk_size_bytes %||% (5L * 1024L * 1024L))
+  chunk_size <- as.integer(init_resp$chunk_size_bytes %||% (50L * 1024L * 1024L)) ## default 50MB
   server_max <- init_resp$max_size_bytes
   if (!is.null(server_max) && length(server_max) > 0) {
     server_max_n <- as.numeric(server_max)[1]
