@@ -149,6 +149,48 @@ test_that(".save_vars_h5 indices are in [0, n_obs)", {
   expect_true(all(indices < n_obs))
 })
 
+test_that(".save_vars_h5 writes raw group in CSR format when raw_mat provided", {
+  skip_if_not_installed("rhdf5")
+  skip_if_not_installed("rhdf5filters")
+  mat <- Matrix::sparseMatrix(
+    i = c(1L, 2L, 3L),
+    j = c(1L, 2L, 3L),
+    x = c(1.0, 2.0, 3.0),
+    dims = c(4L, 3L)
+  )
+  raw <- Matrix::sparseMatrix(
+    i = c(1L, 2L, 3L, 4L),
+    j = c(1L, 2L, 3L, 1L),
+    x = c(10.0, 20.0, 30.0, 5.0),
+    dims = c(4L, 3L)
+  )
+  out <- tempfile(fileext = ".h5")
+  on.exit(if (file.exists(out)) unlink(out))
+  CyteTypeR:::.save_vars_h5(out, mat, raw_mat = raw)
+
+  raw_attrs <- rhdf5::h5readAttributes(out, "raw")
+  expect_equal(as.integer(raw_attrs[["n_obs"]]), 4L)
+  raw_indptr <- rhdf5::h5read(out, "raw/indptr")
+  expect_length(raw_indptr, 4L + 1L)
+  expect_identical(raw_indptr[1], 0L)
+
+  raw_indices <- rhdf5::h5read(out, "raw/indices")
+  expect_true(all(raw_indices >= 0L))
+  raw_data <- rhdf5::h5read(out, "raw/data")
+  expect_equal(length(raw_indices), length(raw_data))
+})
+
+test_that(".save_vars_h5 omits raw group when raw_mat is NULL", {
+  skip_if_not_installed("rhdf5")
+  skip_if_not_installed("rhdf5filters")
+  mat <- Matrix::sparseMatrix(i = 1L, j = 1L, x = 1.0, dims = c(2L, 2L))
+  out <- tempfile(fileext = ".h5")
+  on.exit(if (file.exists(out)) unlink(out))
+  CyteTypeR:::.save_vars_h5(out, mat)
+  contents <- rhdf5::h5ls(out)
+  expect_false("raw" %in% contents$name)
+})
+
 test_that(".save_vars_h5 fails gracefully when rhdf5filters is missing", {
   skip_if_not_installed("rhdf5")
   skip("Cannot mock base::requireNamespace; rhdf5filters guard is validated manually")
