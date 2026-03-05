@@ -34,7 +34,7 @@ test_that(".save_vars_h5 round-trip preserves sparse structure", {
   data <- rhdf5::h5read(out, "vars/data")
   indptr <- rhdf5::h5read(out, "vars/indptr")
   expect_length(indptr, 4L)
-  expect_identical(indptr[1], 0L)
+  expect_equal(as.numeric(indptr[1]), 0)
   expect_equal(sum(m_csc@x), sum(data))
 })
 
@@ -159,10 +159,10 @@ test_that(".save_vars_h5 writes raw group in CSR format when raw_mat provided", 
     dims = c(4L, 3L)
   )
   raw <- Matrix::sparseMatrix(
-    i = c(1L, 2L, 3L, 4L),
-    j = c(1L, 2L, 3L, 1L),
-    x = c(10.0, 20.0, 30.0, 5.0),
-    dims = c(4L, 3L)
+    i = c(1L, 2L, 3L, 1L),
+    j = c(1L, 2L, 3L, 4L),
+    x = c(10, 20, 30, 5),
+    dims = c(3L, 4L)
   )
   out <- tempfile(fileext = ".h5")
   on.exit(if (file.exists(out)) unlink(out))
@@ -170,14 +170,17 @@ test_that(".save_vars_h5 writes raw group in CSR format when raw_mat provided", 
 
   raw_attrs <- rhdf5::h5readAttributes(out, "raw")
   expect_equal(as.integer(raw_attrs[["n_obs"]]), 4L)
+  expect_equal(as.integer(raw_attrs[["n_vars"]]), 3L)
+
   raw_indptr <- rhdf5::h5read(out, "raw/indptr")
   expect_length(raw_indptr, 4L + 1L)
-  expect_identical(raw_indptr[1], 0L)
+  expect_equal(as.numeric(raw_indptr[1]), 0)
 
   raw_indices <- rhdf5::h5read(out, "raw/indices")
   expect_true(all(raw_indices >= 0L))
   raw_data <- rhdf5::h5read(out, "raw/data")
   expect_equal(length(raw_indices), length(raw_data))
+  expect_true(is.integer(raw_data))
 })
 
 test_that(".save_vars_h5 omits raw group when raw_mat is NULL", {
