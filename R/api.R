@@ -100,20 +100,19 @@
     # Process based on job status
     if (job_status == "completed") {
       # Try to get results
-      tryCatch({
-        results_resp <- .api_response_helper(job_id, api_url, 'results', auth_token)
-      }, error = function(e) {
-        # If results fetch fails, treat as failed job
-        return(make_response(
-          "failed",
-          message = paste("Job completed but results unavailable:", e$message),
-          raw = status_data
-        ))
-      })
+      results_resp <- tryCatch(
+        .api_response_helper(job_id, api_url, 'results', auth_token),
+        error = function(e) {
+          make_response(
+            "failed",
+            message = paste("Job completed but results unavailable:", e$message),
+            raw = status_data
+          )
+        }
+      )
 
-      # Check if we got an error response above
-      if (is.list(results_resp) && (results_resp$status == "failed")) {
-        return(results_resp)  # Return the error response
+      if (!is.null(results_resp$status) && results_resp$status == "failed") {
+        return(results_resp)
       }
 
       if (results_resp$status_code == 404) {

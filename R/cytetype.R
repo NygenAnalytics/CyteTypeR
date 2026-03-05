@@ -110,7 +110,7 @@ PrepareCyteTypeR <- function(obj,
     arrange(desc(avg_log2FC)) %>%
     slice_head(n = n_top_genes) %>%
     ungroup() %>%
-    {split(.$gene, .$cluster)}
+    {split(.$gene, as.character(.$cluster))}
   names(marker_genes) <- cluster_map[names(marker_genes)]
 
   if (any(sapply(marker_genes, function(x) !is.vector(x) || length(x) < 5))) {
@@ -156,13 +156,13 @@ PrepareCyteTypeR <- function(obj,
       )
     )
     feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
-    raw_mat <- tryCatch({
-      raw_expr <- tryCatch(
+    raw_mat <- tryCatch(
+      tryCatch(
         Seurat::GetAssayData(obj, assay = default_assay, layer = "counts"),
         error = function(e) Seurat::GetAssayData(obj, assay = default_assay, slot = "counts")
-      )
-      Matrix::t(raw_expr)
-    }, error = function(e) NULL)
+      ),
+      error = function(e) NULL
+    )
     .save_vars_h5(vars_h5_path, mat, raw_mat = raw_mat, feature_df = feature_df, feature_names = feature_names)
     log_info("Built vars.h5 successfully.")
 
