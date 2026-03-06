@@ -186,7 +186,8 @@ PrepareCyteTypeR <- function(obj,
     group_key = group_key,
     build_succeeded = build_succeeded,
     vars_h5_path = vars_h5_path,
-    obs_duckdb_path = obs_duckdb_path
+    obs_duckdb_path = obs_duckdb_path,
+    coordinates_key = coordinates_key
   )
   # Store query
   obj@misc$query <- prepped_data
@@ -308,6 +309,8 @@ CyteTypeR <- function(obj,
 
   group_key <- prepped_data$group_key
   prepped_data$group_key <- NULL
+  coordinates_key <- prepped_data$coordinates_key %||% "umap"
+  prepped_data$coordinates_key <- NULL
 
   .validate_input_data(prepped_data)
 

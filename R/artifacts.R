@@ -64,8 +64,8 @@
       rhdf5::h5writeDataset(.as_string_values(vec), h5loc = fid, name = col_path)
     }
     did <- rhdf5::H5Dopen(fid, col_path)
-    rhdf5::h5writeAttribute(col_name, h5obj = did, name = "source_name")
-    rhdf5::h5writeAttribute(source_dtype, h5obj = did, name = "source_dtype")
+    rhdf5::h5writeAttribute(col_name, h5obj = did, name = "source_name", asScalar = TRUE)
+    rhdf5::h5writeAttribute(source_dtype, h5obj = did, name = "source_dtype", asScalar = TRUE)
     rhdf5::H5Dclose(did)
   }
   invisible(NULL)
@@ -73,10 +73,10 @@
 
 # Write a sparse matrix under a named HDF5 group.
 # csr = FALSE (default): CSC — indptr over columns (genes), indices are row (cell) indices.
-#   Input m must be cells × genes (n_obs × n_vars).
+#   Input m must be cells x genes (n_obs x n_vars).
 # csr = TRUE: CSR — indptr over rows (cells), indices are column (gene) indices.
-#   Input m must be genes × cells (n_vars × n_obs) as returned by Seurat GetAssayData.
-#   Stored via CSC(genes × cells) ≡ CSR(cells × genes); no transpose needed.
+#   Input m must be genes x cells (n_vars x n_obs) as returned by Seurat GetAssayData.
+#   Stored via CSC(genes x cells) == CSR(cells x genes); no transpose needed.
 .write_sparse_group <- function(fid, group, m, n_obs, col_batch, chunk_size,
                                 csr = FALSE, data_h5type = "H5T_NATIVE_FLOAT") {
   if (csr) {
@@ -86,11 +86,12 @@
     n_vars <- ncol(m)
   }
   n_cols <- ncol(m)
+
   rhdf5::h5createGroup(fid, group)
   gid <- rhdf5::H5Gopen(fid, group)
   on.exit(rhdf5::H5Gclose(gid), add = TRUE)
-  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = gid, name = "n_obs")
-  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = gid, name = "n_vars")
+  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = gid, name = "n_obs", asScalar = TRUE)
+  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = gid, name = "n_vars", asScalar = TRUE)
 
   rhdf5::h5createDataset(fid, paste0(group, "/indices"), dims = 0L,
     maxdims = rhdf5::H5Sunlimited(), chunk = chunk_size,
@@ -107,7 +108,7 @@
     chunk <- as(m[, start:end, drop = FALSE], "CsparseMatrix")
     chunk_indices <- as.integer(chunk@i)
     chunk_data <- if (data_h5type == "H5T_NATIVE_INT32") as.integer(chunk@x) else as.numeric(chunk@x)
-    chunk_nnz    <- length(chunk_indices)
+    chunk_nnz <- length(chunk_indices)
     if (chunk_nnz > 0L) {
       rhdf5::h5set_extent(fid, paste0(group, "/indices"), current_size + chunk_nnz)
       rhdf5::h5writeDataset(chunk_indices, h5loc = fid, name = paste0(group, "/indices"),
@@ -159,7 +160,8 @@
   }
 
   if (!is.null(feature_df)) {
-    .write_var_metadata(fid, n_cols = n_vars, feature_df = feature_df, feature_names = feature_names)
+    .write_var_metadata(fid, n_cols = n_vars, feature_df = feature_df,
+                        feature_names = feature_names)
   }
 
   invisible(out_file)
