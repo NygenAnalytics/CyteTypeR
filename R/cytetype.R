@@ -308,9 +308,7 @@ CyteTypeR <- function(obj,
   )
 
   group_key <- prepped_data$group_key
-  prepped_data$group_key <- NULL
   coordinates_key <- prepped_data$coordinates_key %||% "umap"
-  prepped_data$coordinates_key <- NULL
 
   .validate_input_data(prepped_data)
 
