@@ -22,6 +22,15 @@
   return(y)
 }
 
+# Map R class to a pandas-compatible dtype string for the source_dtype attribute.
+.r_to_source_dtype <- function(vec) {
+  if (is.factor(vec))   return("category")
+  if (is.logical(vec))  return("bool")
+  if (is.integer(vec))  return("int32")
+  if (is.numeric(vec))  return("float64")
+  return("object")
+}
+
 # Write optional var (feature) metadata under info/var (mirrors Python _write_var_metadata).
 .write_var_metadata <- function(fid, n_cols, feature_df, feature_names) {
   if (nrow(feature_df) != n_cols) {
@@ -43,6 +52,7 @@
     existing <- c(existing, dataset_name)
     col_path <- paste0("info/var/columns/", dataset_name)
     vec <- feature_df[[i]]
+    source_dtype <- .r_to_source_dtype(vec)
     if (is.factor(vec)) vec <- as.character(vec)
     if (is.logical(vec)) {
       storage.mode(vec) <- "integer"
@@ -53,15 +63,75 @@
     } else {
       rhdf5::h5writeDataset(.as_string_values(vec), h5loc = fid, name = col_path)
     }
+    did <- rhdf5::H5Dopen(fid, col_path)
+    rhdf5::h5writeAttribute(col_name, h5obj = did, name = "source_name")
+    rhdf5::h5writeAttribute(source_dtype, h5obj = did, name = "source_dtype")
+    rhdf5::H5Dclose(did)
   }
   invisible(NULL)
 }
 
-.save_vars_h5 <- function(out_file, mat, feature_df = NULL, feature_names = NULL,
+# Write a sparse matrix under a named HDF5 group.
+# csr = FALSE (default): CSC — indptr over columns (genes), indices are row (cell) indices.
+#   Input m must be cells × genes (n_obs × n_vars).
+# csr = TRUE: CSR — indptr over rows (cells), indices are column (gene) indices.
+#   Input m must be genes × cells (n_vars × n_obs) as returned by Seurat GetAssayData.
+#   Stored via CSC(genes × cells) ≡ CSR(cells × genes); no transpose needed.
+.write_sparse_group <- function(fid, group, m, n_obs, col_batch, chunk_size,
+                                csr = FALSE, data_h5type = "H5T_NATIVE_FLOAT") {
+  if (csr) {
+    m <- as(m, "CsparseMatrix")
+    n_vars <- nrow(m)
+  } else {
+    n_vars <- ncol(m)
+  }
+  n_cols <- ncol(m)
+  rhdf5::h5createGroup(fid, group)
+  gid <- rhdf5::H5Gopen(fid, group)
+  on.exit(rhdf5::H5Gclose(gid), add = TRUE)
+  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = gid, name = "n_obs")
+  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = gid, name = "n_vars")
+
+  rhdf5::h5createDataset(fid, paste0(group, "/indices"), dims = 0L,
+    maxdims = rhdf5::H5Sunlimited(), chunk = chunk_size,
+    H5type = "H5T_NATIVE_INT32", filter = "BLOSC_LZ4")
+  rhdf5::h5createDataset(fid, paste0(group, "/data"), dims = 0L,
+    maxdims = rhdf5::H5Sunlimited(), chunk = chunk_size,
+    H5type = data_h5type, filter = "BLOSC_LZ4")
+
+  indptr <- 0
+  current_size <- 0L
+  starts <- seq(1L, n_cols, by = col_batch)
+  for (start in starts) {
+    end <- min(start + col_batch - 1L, n_cols)
+    chunk <- as(m[, start:end, drop = FALSE], "CsparseMatrix")
+    chunk_indices <- as.integer(chunk@i)
+    chunk_data <- if (data_h5type == "H5T_NATIVE_INT32") as.integer(chunk@x) else as.numeric(chunk@x)
+    chunk_nnz    <- length(chunk_indices)
+    if (chunk_nnz > 0L) {
+      rhdf5::h5set_extent(fid, paste0(group, "/indices"), current_size + chunk_nnz)
+      rhdf5::h5writeDataset(chunk_indices, h5loc = fid, name = paste0(group, "/indices"),
+        index = list((current_size + 1L):(current_size + chunk_nnz)))
+      rhdf5::h5set_extent(fid, paste0(group, "/data"), current_size + chunk_nnz)
+      rhdf5::h5writeDataset(chunk_data, h5loc = fid, name = paste0(group, "/data"),
+        index = list((current_size + 1L):(current_size + chunk_nnz)))
+      current_size <- current_size + chunk_nnz
+    }
+    new_indptr <- as.numeric(chunk@p[-1L]) + indptr[length(indptr)]
+    indptr <- c(indptr, new_indptr)
+  }
+
+  rhdf5::h5createDataset(fid, paste0(group, "/indptr"), dims = length(indptr),
+    H5type = "H5T_NATIVE_INT64", chunk = min(chunk_size, length(indptr)),
+    filter = "BLOSC_LZ4")
+  rhdf5::h5writeDataset(indptr, h5loc = fid, name = paste0(group, "/indptr"))
+  invisible(NULL)
+}
+
+.save_vars_h5 <- function(out_file, mat, raw_mat = NULL, feature_df = NULL, feature_names = NULL,
                           col_batch = NULL, min_chunk_size = 10000L) {
-  m <- as(mat, "CsparseMatrix")
-  n_obs <- nrow(m)
-  n_vars <- ncol(m)
+  n_obs <- nrow(mat)
+  n_vars <- ncol(mat)
 
   if (!requireNamespace("rhdf5filters", quietly = TRUE)) {
     stop("Package 'rhdf5filters' is required to write vars.h5 with LZ4 compression.")
@@ -80,70 +150,13 @@
   fid <- rhdf5::H5Fopen(out_file, flags = "H5F_ACC_RDWR")
   on.exit(rhdf5::H5Fclose(fid), add = TRUE)
 
-  rhdf5::h5createGroup(fid, "vars")
-  rhdf5::h5writeAttribute(as.integer(n_obs), h5obj = out_file, name = "n_obs", h5loc = "vars", asScalar = TRUE)
-  rhdf5::h5writeAttribute(as.integer(n_vars), h5obj = out_file, name = "n_vars", h5loc = "vars", asScalar = TRUE)
+  .write_sparse_group(fid, "vars", mat, n_obs, col_batch, chunk_size)
 
-  # Create extensible datasets (equivalent to maxshape=(None,) in h5py)
-  max_nnz <- n_obs * n_vars  # upper bound
-  rhdf5::h5createDataset(
-    fid, "vars/indices",
-    dims = 0L,
-    maxdims = rhdf5::H5Sunlimited(),
-    chunk = chunk_size,
-    H5type = "H5T_NATIVE_INT32",
-    filter = "BLOSC_LZ4"
-  )
-  rhdf5::h5createDataset(
-    fid, "vars/data",
-    dims = 0L,
-    maxdims = rhdf5::H5Sunlimited(),
-    chunk = chunk_size,
-    H5type = "H5T_NATIVE_FLOAT",
-    filter = "BLOSC_LZ4"
-  )
-
-  indptr <- 0L
-  current_size <- 0L
-
-  starts <- seq(1L, n_vars, by = col_batch)
-  for (start in starts) {
-    end <- min(start + col_batch - 1L, n_vars)
-    chunk <- as(m[, start:end, drop = FALSE], "CsparseMatrix")
-
-    chunk_indices <- as.integer(chunk@i)
-    chunk_data   <- as.numeric(chunk@x)
-    chunk_nnz    <- length(chunk_indices)
-
-    if (chunk_nnz > 0L) {
-      # Extend and write indices
-      rhdf5::h5set_extent(fid, "vars/indices", current_size + chunk_nnz)
-      rhdf5::h5writeDataset(
-        chunk_indices, h5loc = fid, name = "vars/indices",
-        index = list((current_size + 1L):(current_size + chunk_nnz))
-      )
-      # Extend and write data
-      rhdf5::h5set_extent(fid, "vars/data", current_size + chunk_nnz)
-      rhdf5::h5writeDataset(
-        chunk_data, h5loc = fid, name = "vars/data",
-        index = list((current_size + 1L):(current_size + chunk_nnz))
-      )
-      current_size <- current_size + chunk_nnz
-    }
-
-    # Accumulate indptr (skip first element after first chunk)
-    new_indptr <- as.integer(chunk@p[-1L] + indptr[length(indptr)])
-    indptr <- c(indptr, new_indptr)
+  if (!is.null(raw_mat)) {
+    raw_col_batch <- max(1L, as.integer(100000000 / max(nrow(raw_mat), 1)))
+    .write_sparse_group(fid, "raw", raw_mat, n_obs, raw_col_batch, chunk_size,
+                        csr = TRUE, data_h5type = "H5T_NATIVE_INT32")
   }
-
-  rhdf5::h5createDataset(
-    fid, "vars/indptr",
-    dims = length(indptr),
-    H5type = "H5T_NATIVE_INT32",
-    chunk = min(chunk_size, length(indptr)),
-    filter = "BLOSC_LZ4"
-  )
-  rhdf5::h5writeDataset(as.integer(indptr), h5loc = fid, name = "vars/indptr")
 
   if (!is.null(feature_df)) {
     .write_var_metadata(fid, n_cols = n_vars, feature_df = feature_df, feature_names = feature_names)
@@ -152,7 +165,8 @@
   invisible(out_file)
 }
 
-.save_obs_duckdb <- function(out_file, obs_df, table_name = "obs",
+.save_obs_duckdb <- function(out_file, obs_df, coordinates = NULL, coordinates_key = NULL,
+                             table_name = "obs",
                              threads = "4", memory_limit = "4GB", temp_directory = "tmp/duckdb") {
   if (!requireNamespace("duckdb", quietly = TRUE)) {
     stop("Package 'duckdb' is required to build obs.duckdb. Install with: install.packages('duckdb')")
@@ -160,10 +174,23 @@
   if (!grepl("^[A-Za-z_][A-Za-z0-9_]*$", table_name)) {
     stop("Invalid table_name. Use letters, numbers, and underscores only.")
   }
+
+  df <- as.data.frame(obs_df)
+
+  if (!is.null(coordinates) && !is.null(coordinates_key)) {
+    coords <- as.matrix(coordinates)
+    if (ncol(coords) >= 2 && nrow(coords) == nrow(df)) {
+      col1 <- paste0("__vis_coordinates_", coordinates_key, "_1")
+      col2 <- paste0("__vis_coordinates_", coordinates_key, "_2")
+      df[[col1]] <- as.numeric(coords[, 1])
+      df[[col2]] <- as.numeric(coords[, 2])
+    }
+  }
+
   if (file.exists(out_file)) file.remove(out_file)
   config <- list(threads = as.character(threads), memory_limit = memory_limit, temp_directory = temp_directory)
   con <- duckdb::dbConnect(duckdb::duckdb(), out_file, config = config)
   on.exit(duckdb::dbDisconnect(con, shutdown = TRUE), add = TRUE)
-  duckdb::dbWriteTable(con, table_name, as.data.frame(obs_df), overwrite = TRUE)
+  duckdb::dbWriteTable(con, table_name, df, overwrite = TRUE)
   invisible(out_file)
 }

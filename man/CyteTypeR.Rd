@@ -18,10 +18,7 @@ CyteTypeR(
   auth_token = NULL,
   save_query = TRUE,
   query_filename = "query.json",
-  vars_h5_path = "vars.h5",
-  obs_duckdb_path = "obs.duckdb",
   upload_timeout_seconds = 3600L,
-  cleanup_artifacts = FALSE,
   require_artifacts = TRUE,
   show_progress = TRUE,
   override_existing_results = FALSE
@@ -54,13 +51,7 @@ CyteTypeR(
 
 \item{query_filename}{Character. Filename for the saved query when \code{save_query} is \code{TRUE}. Default is \code{"query.json"}.}
 
-\item{vars_h5_path}{Character. Local path for the generated vars.h5 artifact. Default is \code{"vars.h5"}.}
-
-\item{obs_duckdb_path}{Character. Local path for the generated obs.duckdb artifact. Default is \code{"obs.duckdb"}.}
-
 \item{upload_timeout_seconds}{Integer. Socket read timeout (seconds) for each artifact upload. Default is 3600.}
-
-\item{cleanup_artifacts}{Logical. If \code{TRUE}, delete generated artifact files after the run (success or failure). Default is \code{FALSE}.}
 
 \item{require_artifacts}{Logical. If \code{TRUE}, an error during artifact build or upload stops the run; if \code{FALSE}, failures are skipped and annotation continues without artifacts. Default is \code{TRUE}.}
 

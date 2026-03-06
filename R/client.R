@@ -1,5 +1,5 @@
-# Upload size limits (bytes): match Python API (vars_h5 10GB uses numeric to avoid integer overflow)
-.MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 10 * 1024 * 1024 * 1024)
+# Upload size limits: 100MB and 50GB respectively (vars_h5 uses numeric to avoid integer overflow)
+.MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 50 * 1024 * 1024 * 1024)
 
 # Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
 .CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
@@ -38,7 +38,7 @@
     stop(file_kind, " exceeds upload limit: ", size, " bytes (max ", max_bytes, ")")
   }
 
-  connection_timeout <- 30L
+  connection_timeout <- 72L
 
   # Step 1 – Initiate (empty POST; explicit empty body for compatibility)
   init_resp <- tryCatch(
@@ -52,7 +52,7 @@
   )
 
   upload_id <- init_resp$upload_id
-  chunk_size <- as.integer(init_resp$chunk_size_bytes %||% (5L * 1024L * 1024L))
+  chunk_size <- as.integer(init_resp$chunk_size_bytes %||% (50L * 1024L * 1024L)) ## default 50MB
   server_max <- init_resp$max_size_bytes
   if (!is.null(server_max) && length(server_max) > 0) {
     server_max_n <- as.numeric(server_max)[1]
@@ -145,7 +145,7 @@
       req_method("POST") |>
       req_body_json(payload, na = "string") |>
       req_headers("Content-Type" = "application/json") |>
-      req_timeout(60)
+      req_timeout(180)
 
     # Add auth token if provided
     if (!is.null(auth_token)) {
@@ -211,6 +211,8 @@
   last_cluster_status <- list()
   spinner_frame = 0
   consecutive_not_found <- 0
+  consecutive_errors <- 0
+  max_consecutive_errors <- 5
 
   # Main polling loop
   repeat {
@@ -225,8 +227,9 @@
       status_response <- .make_results_request(job_id, api_url, auth_token)
       status <- status_response$status
 
-      # Reset not found counter on valid response
-      if (status != "not_found"){ consecutive_not_found <- 0 }
+      # Reset counters on valid server response
+      if (status != "not_found") consecutive_not_found <- 0
+      if (status != "error") consecutive_errors <- 0
 
       # Extract cluster status
       current_cluster_status <- status_response$raw_response$clusterStatus %||% list()
@@ -274,31 +277,40 @@
              "pending" = {
                log_debug("Job {job_id} status: {status}. Waiting {poll_interval}s...")
                if (show_progress && length(current_cluster_status) > 0){
-
-                 # Sleep with spinner updates
-                 .sleep_with_spinner(poll_interval,current_cluster_status,show_progress)
+                 .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
+               } else {
+                 Sys.sleep(poll_interval)
                }
                last_cluster_status <- current_cluster_status
              },
 
              "not_found" = {
                consecutive_not_found <- consecutive_not_found + 1
+               log_debug("Job {job_id} not found (404, attempt {consecutive_not_found}). Waiting {poll_interval}s...")
 
-               if (!is.null(auth_token) && consecutive_not_found >= 3) {
-                 log_warn("\u26a0\ufe0f  Getting consecutive 404 responses with auth token. This might indicate authentication issues.")
-                 log_warn("Please verify your auth_token is valid and has proper permissions")
-                 log_warn("If you're using a shared server, contact your administrator.")
-                 consecutive_not_found <- 0  # Reset to avoid spam
+               if (consecutive_not_found >= 5) {
+                 cat("\n")
+                 stop(paste0("Job '", job_id, "' not found after ", consecutive_not_found,
+                             " attempts. Verify the job_id is correct."))
                }
-
-               log_debug("Results endpoint not ready yet for job {job_id} (404). Waiting {poll_interval}s...")
-               .sleep_with_spinner(poll_interval,current_cluster_status,show_progress)
+               .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
                last_cluster_status <- current_cluster_status
              },
 
+             "error" = {
+               consecutive_errors <- consecutive_errors + 1
+               error_msg <- status_response$message %||% "Unknown error"
+               log_warn("Error checking job {job_id} ({consecutive_errors}/{max_consecutive_errors}): {error_msg}")
+               if (consecutive_errors >= max_consecutive_errors) {
+                 cat("\n")
+                 stop(paste("Stopping after", max_consecutive_errors, "consecutive errors:", error_msg))
+               }
+               .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
+             },
+
              {
-               log_warn("Job {job_id} has unknown status: '{status}'. Continuing...")
-               .sleep_with_spinner(poll_interval,current_cluster_status,show_progress)
+               cat("\n")
+               stop(paste("Job", job_id, "returned unexpected status:", status))
              }
       )
 

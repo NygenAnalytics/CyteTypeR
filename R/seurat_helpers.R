@@ -95,7 +95,7 @@
     group_key,
     min_percentage = 10)
 {
-  metadata <- seurat_obj@meta.data
+  metadata <- droplevels(seurat_obj@meta.data)
   # Get unique groups and initialize result structure
   unique_groups <- unique(metadata[[group_key]])
   unique_groups <- unique_groups[!is.na(unique_groups)]
@@ -124,7 +124,7 @@
       colnames(percentage_df) <- c("value", "group", "percentage")
 
       # Filter for significant values (> min_percentage)
-      significant_df <- percentage_df[percentage_df$percentage > min_percentage, ]
+      significant_df <- percentage_df[which(percentage_df$percentage > min_percentage), ]
 
       if (nrow(significant_df) > 0) {
         # Organize results by group
@@ -210,7 +210,12 @@
   if (!inherits(seurat_obj, "Seurat")){
     stop("Please provide a Seurat Object")
   }
+
   .validate_gene_symbols(seurat_obj,gene_symbols)
+
+  if (!(group_key %in% names(seurat_obj@meta.data))){
+    stop("Please provide a valid group key that exists in the Seurat object's meta.data.")
+  }
 
   if (!(coordinates_key %in% names(seurat_obj@reductions))){
     log_info("Coordinates key {coordinates_key} not found in reductions.")
@@ -250,9 +255,8 @@
     log_info(paste("Correct cluster labels", cli::symbol$tick))
   }
   else{
-    log_error("Please check if cluster labels are consistent between marker table and seurat obj!")
+    stop("Please check if cluster labels are consistent between marker table and seurat obj!")
   }
-
   log_info(paste("Markers check: done", cli::symbol$tick))
 }
 
