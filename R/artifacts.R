@@ -78,7 +78,8 @@
 #   Input m must be genes x cells (n_vars x n_obs) as returned by Seurat GetAssayData.
 #   Stored via CSC(genes x cells) == CSR(cells x genes); no transpose needed.
 .write_sparse_group <- function(fid, group, m, n_obs, col_batch, chunk_size,
-                                csr = FALSE, data_h5type = "H5T_NATIVE_FLOAT") {
+                                csr = FALSE, data_h5type = "H5T_NATIVE_FLOAT",
+                                pb_id = NULL) {
   if (csr) {
     m <- as(m, "CsparseMatrix")
     n_vars <- nrow(m)
@@ -120,6 +121,7 @@
     }
     new_indptr <- as.numeric(chunk@p[-1L]) + indptr[length(indptr)]
     indptr <- c(indptr, new_indptr)
+    if (!is.null(pb_id)) cli::cli_progress_update(id = pb_id)
   }
 
   rhdf5::h5createDataset(fid, paste0(group, "/indptr"), dims = length(indptr),
@@ -143,6 +145,21 @@
   }
   chunk_size <- max(1L, min(n_obs * 10L, min_chunk_size))
 
+  raw_col_batch <- if (!is.null(raw_mat)) {
+    max(1L, as.integer(100000000 / max(nrow(raw_mat), 1)))
+  } else NULL
+
+  vars_n_batches <- length(seq(1L, n_vars, by = col_batch))
+  raw_n_batches <- if (!is.null(raw_mat)) length(seq(1L, ncol(raw_mat), by = raw_col_batch)) else 0L
+  total_batches <- vars_n_batches + raw_n_batches
+
+  pb_label <- if (raw_n_batches > 0L) "Writing vars.h5 (normalized + raw)" else "Writing vars.h5"
+  pb_id <- cli::cli_progress_bar(
+    format = paste0(pb_label, " {cli::pb_bar} {cli::pb_current}/{cli::pb_total} batches ({cli::pb_rate})"),
+    total = total_batches,
+    clear = FALSE
+  )
+
   if (file.exists(out_file) && !file.remove(out_file)) {
     stop("Could not remove existing file: ", out_file)
   }
@@ -151,12 +168,11 @@
   fid <- rhdf5::H5Fopen(out_file, flags = "H5F_ACC_RDWR")
   on.exit(rhdf5::H5Fclose(fid), add = TRUE)
 
-  .write_sparse_group(fid, "vars", mat, n_obs, col_batch, chunk_size)
+  .write_sparse_group(fid, "vars", mat, n_obs, col_batch, chunk_size, pb_id = pb_id)
 
   if (!is.null(raw_mat)) {
-    raw_col_batch <- max(1L, as.integer(100000000 / max(nrow(raw_mat), 1)))
     .write_sparse_group(fid, "raw", raw_mat, n_obs, raw_col_batch, chunk_size,
-                        csr = TRUE, data_h5type = "H5T_NATIVE_INT32")
+                        csr = TRUE, data_h5type = "H5T_NATIVE_INT32", pb_id = pb_id)
   }
 
   if (!is.null(feature_df)) {
@@ -188,6 +204,8 @@
       df[[col2]] <- as.numeric(coords[, 2])
     }
   }
+
+  cli::cli_progress_step("Writing obs.duckdb")
 
   if (file.exists(out_file)) file.remove(out_file)
   config <- list(threads = as.character(threads), memory_limit = memory_limit, temp_directory = temp_directory)
