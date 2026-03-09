@@ -1,4 +1,3 @@
-# API Response Helper for CyteType
 # HTTP primitives, request utilities, and shared constants for CyteType API communication.
 
 # Upload size limits (numeric to avoid integer overflow)
@@ -102,89 +101,36 @@
   })
 }
 
-# Make Request for Job Results
-.make_results_request <- function(job_id, api_url, auth_token = NULL) {
+# PUT raw bytes to a presigned URL with retry, ETag validation, and proper error classification.
+.put_to_presigned_url <- function(presigned_url, chunk_data, timeout_seconds) {
+  resp <- request(presigned_url) |>
+    req_method("PUT") |>
+    httr2::req_body_raw(chunk_data, type = "application/octet-stream") |>
+    req_timeout(timeout_seconds) |>
+    httr2::req_error(is_error = function(resp) FALSE) |>
+    httr2::req_retry(
+      max_tries = length(.CHUNK_UPLOAD_BACKOFF_SECS) + 1L,
+      retry_on_failure = TRUE,
+      is_transient = function(resp) resp_status(resp) %in% .CHUNK_UPLOAD_TRANSIENT_STATUSES,
+      backoff = function(tries) .CHUNK_UPLOAD_BACKOFF_SECS[min(tries, length(.CHUNK_UPLOAD_BACKOFF_SECS))]
+    ) |>
+    req_perform()
 
-  # Helper for consistent responses
-  make_response <- function(status, result = NULL, message, raw = NULL) {
-    list(status = status, result = result, message = message, raw_response = raw)
+  status <- resp_status(resp)
+  if (status >= 400L) {
+    stop(cytetype_api_error(
+      message = paste0("Presigned upload rejected with HTTP ", status),
+      call = "api"
+    ))
   }
 
-  tryCatch({
-    # Get job status
-    status_resp <- .api_response_helper(job_id, api_url, 'status', auth_token)
-
-    # Handle 404 immediately
-    if (status_resp$status_code == 404) {
-      return(make_response("not_found", message = "Job not found"))
-    }
-
-    job_status <- status_resp$data$jobStatus
-    status_data <- status_resp$data
-
-    # Process based on job status
-    if (job_status == "completed") {
-      # Try to get results
-      results_resp <- tryCatch(
-        .api_response_helper(job_id, api_url, 'results', auth_token),
-        error = function(e) {
-          make_response(
-            "failed",
-            message = paste("Job completed but results unavailable:", e$message),
-            raw = status_data
-          )
-        }
-      )
-
-      if (!is.null(results_resp$status) && results_resp$status == "failed") {
-        return(results_resp)
-      }
-
-      if (results_resp$status_code == 404) {
-        return(make_response(
-          "failed",
-          message = "Job completed but results are unavailable",
-          raw = status_data
-        ))
-      }
-
-      return(make_response(
-        "completed",
-        result = results_resp$data,
-        message = "Job completed successfully",
-        raw = status_data
-      ))
-    }
-
-    if (job_status == "failed") {
-      return(make_response(
-        "failed",
-        message = "Job failed",
-        raw = status_data
-      ))
-    }
-
-    if (job_status %in% c("processing", "pending")) {
-      return(make_response(
-        job_status,
-        message = paste("Job is", job_status),
-        raw = status_data
-      ))
-    }
-
-    # Unknown status
-    return(make_response(
-      "unknown",
-      message = paste("Unknown job status:", job_status),
-      raw = status_data
+  etag <- httr2::resp_header(resp, "ETag")
+  if (is.null(etag) || !nzchar(etag)) {
+    stop(cytetype_api_error(
+      message = "Presigned PUT succeeded but response is missing ETag header",
+      call = "network"
     ))
+  }
 
-  }, error = function(e) {
-    # Handle any unexpected errors
-    return(make_response(
-      "error",
-      message = paste("Error checking job status:", e$message)
-    ))
-  })
+  etag
 }
-
