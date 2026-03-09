@@ -1,5 +1,8 @@
-# Upload size limits: 100MB and 50GB respectively (vars_h5 uses numeric to avoid integer overflow)
-.MAX_UPLOAD_BYTES <- list(obs_duckdb = 100L * 1024L * 1024L, vars_h5 = 50 * 1024 * 1024 * 1024)
+# Upload size limits: use numeric to avoid integer overflow)
+.MAX_UPLOAD_BYTES <- list(
+  obs_duckdb = 2 * 1024 * 1024 * 1024,   # 2 GB
+  vars_h5    = 50 * 1024 * 1024 * 1024   # 50 GB
+)
 
 # Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
 .CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
