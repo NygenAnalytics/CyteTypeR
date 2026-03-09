@@ -1,26 +1,4 @@
-# Upload size limits: use numeric to avoid integer overflow)
-.MAX_UPLOAD_BYTES <- list(
-  obs_duckdb = 2 * 1024 * 1024 * 1024,   # 2 GB
-  vars_h5    = 50 * 1024 * 1024 * 1024   # 50 GB
-)
-
-# Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
-.CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
-.CHUNK_UPLOAD_TRANSIENT_STATUSES <- c(500L, 502L, 503L, 504L)
-
-# URL path builder (avoids file.path backslashes on Windows)
-.url_path <- function(...) {
-  x <- vapply(c(...), function(seg) gsub("^/+|/+$", "", as.character(seg)), character(1))
-  paste(x[nzchar(x)], collapse = "/")
-}
-
-.make_req <- function(base_url, path, auth_token) {
-  req <- request(paste0(base_url, "/", path))
-  if (!is.null(auth_token)) {
-    req <- req_headers(req, Authorization = paste("Bearer", auth_token))
-  }
-  return(req)
-}
+# Multi-step workflow orchestration: uploads, job submission, polling, and result retrieval.
 
 # Chunked upload flow (initiate -> PUT chunks -> complete). Uses scalar timeout; httr2 req_timeout takes seconds.
 
@@ -29,8 +7,8 @@
                                  file_kind,
                                  file_path,
                                  timeout_seconds = 3600L,
-                                 max_workers = 4L) {
-  api_url <- paste0(api_url, "/upload")
+                                 max_workers = 6L,
+                                 show_progress = TRUE) {
 
   if (!file.exists(file_path)) stop("Upload file not found: ", file_path)
 
@@ -42,12 +20,13 @@
   }
 
   connection_timeout <- 72L
+  api_url <- paste0(api_url, "/upload")
 
-  # Step 1 – Initiate (empty POST; explicit empty body for compatibility)
+  # Step 1 – Initiate
   init_resp <- tryCatch(
     .make_req(api_url, paste0(file_kind, "/initiate"), auth_token) |>
       req_method("POST") |>
-      httr2::req_body_raw(raw(0), type = "application/json") |>
+      httr2::req_body_json(list("file_size_bytes" = size), type = "application/json") |>
       req_timeout(connection_timeout) |>
       req_perform() |>
       resp_body_json(),
@@ -66,12 +45,22 @@
 
   n_chunks <- if (size > 0) as.integer(ceiling(size / chunk_size)) else 0L
 
+  presigned_urls <- init_resp$presigned_urls %||% init_resp$presignedUrls %||% list()
+  r2_upload_id <- init_resp$r2_upload_id %||% init_resp$r2UploadId %||% NULL
+  use_r2 <- length(presigned_urls) > 0L && !is.null(r2_upload_id)
+
+  log_info("Upload {file_kind}: {n_chunks} chunks, use_r2={use_r2}, presigned_urls={length(presigned_urls)}")
+
+  if (use_r2 && length(presigned_urls) < n_chunks) {
+    stop("Server returned ", length(presigned_urls), " presigned URLs but need at least ", n_chunks, " (one per chunk).")
+  }
+
   # Step 2 – Upload chunks (future for cross-platform parallel, req_retry for resilience)
   if (n_chunks > 0) {
     effective_workers <- min(max_workers, n_chunks)
     chunk_idxs <- seq_len(n_chunks) - 1L
 
-    .upload_one_chunk <- function(chunk_idx) {
+    .upload_chunk_server <- function(chunk_idx) {
       tryCatch({
         con <- file(file_path, "rb")
         on.exit(close(con), add = TRUE)
@@ -97,22 +86,84 @@
       })
     }
 
-    if (effective_workers > 1L && requireNamespace("furrr", quietly = TRUE)) {
-      chunk_results <- furrr::future_map(chunk_idxs, .upload_one_chunk)
-    } else {
-      chunk_results <- purrr::map(chunk_idxs, .upload_one_chunk)
+    .upload_chunk_r2 <- function(chunk_idx) {
+      tryCatch({
+        con <- file(file_path, "rb")
+        on.exit(close(con), add = TRUE)
+        offset <- chunk_idx * chunk_size
+        read_size <- min(chunk_size, size - offset)
+        seek(con, offset)
+        chunk_data <- readBin(con, what = "raw", n = read_size)
+        presigned_url <- presigned_urls[[chunk_idx + 1L]]
+        etag <- .put_to_presigned_url(presigned_url, chunk_data, timeout_seconds)
+        list(ok = TRUE, etag = etag, part_number = chunk_idx + 1L)
+      }, error = function(e) {
+        .stop_if_rate_limited(e)
+        list(ok = FALSE, chunk_idx = chunk_idx, message = conditionMessage(e))
+      })
     }
+
+    upload_fn <- if (use_r2) .upload_chunk_r2 else .upload_chunk_server
+    has_furrr <- requireNamespace("furrr", quietly = TRUE)
+    has_progressr <- requireNamespace("progressr", quietly = TRUE)
+    use_parallel <- effective_workers > 1L && has_furrr && (!show_progress || has_progressr)
+
+    if (use_parallel) {
+      oplan <- future::plan(future::multisession, workers = effective_workers)
+      on.exit(future::plan(oplan), add = TRUE)
+
+      if (show_progress) {
+        pb_fmt <- paste0(
+          "Uploading ", file_kind,
+          " {cli::pb_bar} {cli::pb_current}/{cli::pb_total} chunks ({cli::pb_rate})"
+        )
+        progressr::with_progress({
+          p <- progressr::progressor(steps = n_chunks)
+          chunk_results <- furrr::future_map(chunk_idxs, function(idx) {
+            result <- upload_fn(idx)
+            p()
+            result
+          })
+        }, handlers = progressr::handler_cli(format = pb_fmt))
+      } else {
+        chunk_results <- furrr::future_map(chunk_idxs, upload_fn)
+      }
+    } else {
+      if (show_progress) {
+        pb_fmt <- paste0(
+          "Uploading ", file_kind,
+          " {cli::pb_bar} {cli::pb_current}/{cli::pb_total} chunks ({cli::pb_rate})"
+        )
+        pb_id <- cli::cli_progress_bar(format = pb_fmt, total = n_chunks, clear = FALSE, .envir = environment())
+      }
+      chunk_results <- purrr::map(chunk_idxs, function(idx) {
+        result <- upload_fn(idx)
+        if (show_progress) cli::cli_progress_update(id = pb_id)
+        result
+      })
+    }
+
     failed <- which(!vapply(chunk_results, function(r) is.list(r) && isTRUE(r$ok), logical(1)))
     if (length(failed) > 0L) {
       r <- chunk_results[[failed[1L]]]
       stop("Upload chunk ", r$chunk_idx, " failed: ", r$message)
     }
   }
-  # Step 3 – Complete (empty POST; explicit empty body for compatibility)
+
+  # Step 3 – Complete
+  complete_body <- if (use_r2) {
+    parts <- lapply(chunk_results, function(r) {
+      list(ETag = r$etag, PartNumber = r$part_number)
+    })
+    list(parts = parts)
+  } else {
+    list()
+  }
+
   complete_resp <- tryCatch(
     .make_req(api_url, paste0(upload_id, "/complete"), auth_token) |>
       req_method("POST") |>
-      httr2::req_body_raw(raw(0), type = "application/json") |>
+      httr2::req_body_json(complete_body, type = "application/json") |>
       req_timeout(connection_timeout) |>
       req_perform() |>
       resp_body_json(),
@@ -123,12 +174,16 @@
 }
 
 
-.upload_obs_duckdb <- function(api_url, auth_token, file_path, timeout_seconds = 3600L, max_workers = 4L) {
-  .upload_file_chunked(api_url, auth_token, "obs_duckdb", file_path, timeout_seconds, max_workers)
+.upload_obs_duckdb <- function(api_url, auth_token, file_path, timeout_seconds = 3600L,
+                               max_workers = 6L, show_progress = TRUE) {
+  .upload_file_chunked(api_url, auth_token, "obs_duckdb", file_path, timeout_seconds,
+                       max_workers, show_progress)
 }
 
-.upload_vars_h5 <- function(api_url, auth_token, file_path, timeout_seconds = 3600L, max_workers = 4L) {
-  .upload_file_chunked(api_url, auth_token, "vars_h5", file_path, timeout_seconds, max_workers)
+.upload_vars_h5 <- function(api_url, auth_token, file_path, timeout_seconds = 3600L,
+                             max_workers = 6L, show_progress = TRUE) {
+  .upload_file_chunked(api_url, auth_token, "vars_h5", file_path, timeout_seconds,
+                       max_workers, show_progress)
 }
 
 # Submit a new job
@@ -182,6 +237,86 @@
     return(NA_character_)
   })
 }
+
+# Multi-step job results request (status check + results fetch)
+.make_results_request <- function(job_id, api_url, auth_token = NULL) {
+
+  make_response <- function(status, result = NULL, message, raw = NULL) {
+    list(status = status, result = result, message = message, raw_response = raw)
+  }
+
+  tryCatch({
+    status_resp <- .api_response_helper(job_id, api_url, 'status', auth_token)
+
+    if (status_resp$status_code == 404) {
+      return(make_response("not_found", message = "Job not found"))
+    }
+
+    job_status <- status_resp$data$jobStatus
+    status_data <- status_resp$data
+
+    if (job_status == "completed") {
+      results_resp <- tryCatch(
+        .api_response_helper(job_id, api_url, 'results', auth_token),
+        error = function(e) {
+          make_response(
+            "failed",
+            message = paste("Job completed but results unavailable:", e$message),
+            raw = status_data
+          )
+        }
+      )
+
+      if (!is.null(results_resp$status) && results_resp$status == "failed") {
+        return(results_resp)
+      }
+
+      if (results_resp$status_code == 404) {
+        return(make_response(
+          "failed",
+          message = "Job completed but results are unavailable",
+          raw = status_data
+        ))
+      }
+
+      return(make_response(
+        "completed",
+        result = results_resp$data,
+        message = "Job completed successfully",
+        raw = status_data
+      ))
+    }
+
+    if (job_status == "failed") {
+      return(make_response(
+        "failed",
+        message = "Job failed",
+        raw = status_data
+      ))
+    }
+
+    if (job_status %in% c("processing", "pending")) {
+      return(make_response(
+        job_status,
+        message = paste("Job is", job_status),
+        raw = status_data
+      ))
+    }
+
+    return(make_response(
+      "unknown",
+      message = paste("Unknown job status:", job_status),
+      raw = status_data
+    ))
+
+  }, error = function(e) {
+    return(make_response(
+      "error",
+      message = paste("Error checking job status:", e$message)
+    ))
+  })
+}
+
 # Polling for results
 .poll_for_results <- function(job_id, api_url, poll_interval = NULL,
                               timeout = NULL, auth_token = NULL,
@@ -356,4 +491,3 @@
 
   }
 }
-
