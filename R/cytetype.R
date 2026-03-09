@@ -363,12 +363,13 @@ CyteTypeR <- function(obj,
       )
     }, error = function(e) {
       if (require_artifacts) {
-        log_error("Uploading artifacts failed: {conditionMessage(e)}")
+        log_error(paste("Uploading artifacts failed:", conditionMessage(e),
+        "Set `require_artifacts=FALSE` to continue without uploading artifacts."))
         stop(e)
       } else {
         log_warn(paste(
           "Uploading artifacts failed. Continuing without artifacts.",
-          "Set `require_artifacts=TRUE` to raise this as an error.",
+          "Set `require_artifacts=TRUE` to stop on upload failures.",
           "Original error:", conditionMessage(e)
         ))
       }
