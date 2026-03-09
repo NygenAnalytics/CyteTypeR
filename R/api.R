@@ -1,4 +1,5 @@
 # API Response Helper for CyteType
+# HTTP primitives, request utilities, and shared constants for CyteType API communication.
 
 #' @importFrom httr2 req_auth_bearer_token req_body_json req_headers req_method req_perform req_timeout request resp_body_json resp_body_string resp_status
 .api_response_helper <- function(job_id, api_url, req_item, auth_token = NULL) {
