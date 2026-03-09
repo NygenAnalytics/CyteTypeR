@@ -19,7 +19,7 @@
 #' @param min_percentage Numeric threshold for minimum percentage.
 #'   Default is 10.
 #' @param pcent_batch_size Integer specifying batch size for expression percentage
-#'   calculations. Default is 2000.
+#'   calculations. Default is 5000.
 #' @param coordinates_key Character string specifying which dimensional reduction
 #'   to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".
 #' @param max_cells_per_group Integer specifying maximum cells per cluster for
@@ -167,7 +167,7 @@ PrepareCyteTypeR <- function(obj,
     log_info("Built vars.h5 successfully.")
 
     log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
-    
+
     .save_obs_duckdb(obs_duckdb_path, obj@meta.data,
                      coordinates = coords, coordinates_key = coordinates_key)
     log_info("Built obs.duckdb successfully.")
@@ -365,7 +365,7 @@ CyteTypeR <- function(obj,
       }
     })
   }
-  
+
   query_for_json <- .prepare_query_for_json(query_list)
   if (save_query) {
     write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
