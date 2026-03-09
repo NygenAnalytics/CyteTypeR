@@ -93,7 +93,8 @@
 .aggregate_metadata <- function(
     seurat_obj,
     group_key,
-    min_percentage = 10)
+    min_percentage = 10,
+    max_metadata_categories = 128L)
 {
   metadata <- droplevels(seurat_obj@meta.data)
   # Get unique groups and initialize result structure
@@ -109,11 +110,12 @@
 
   for (column in colnames(metadata)){
     if (column == group_key){
-      next # skip group_key group in metadata
+      next
     }
     if (inherits(metadata[[column]], "factor") || is.character(metadata[[column]])){
+      n_unique <- length(unique(metadata[[column]]))
+      if (n_unique > max_metadata_categories) next
 
-      # Create "crosstab": rows = group values in a metadata cat, columns = groups in group_key
       crosstab <- table(metadata[[column]], metadata[[group_key]], useNA = "no")
 
       # Percentages in each column(metadata group with prop.table margin=2)

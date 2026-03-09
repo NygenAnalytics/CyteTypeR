@@ -18,8 +18,11 @@
 #'   across cells within each cluster. Default is `TRUE`.
 #' @param min_percentage Numeric threshold for minimum percentage.
 #'   Default is 10.
+#' @param max_metadata_categories Integer. Maximum number of unique values a
+#'   categorical metadata column may have to be included in aggregation. Columns
+#'   exceeding this limit are silently skipped. Default is 500.
 #' @param pcent_batch_size Integer specifying batch size for expression percentage
-#'   calculations. Default is 2000.
+#'   calculations. Default is 5000.
 #' @param coordinates_key Character string specifying which dimensional reduction
 #'   to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".
 #' @param max_cells_per_group Integer specifying maximum cells per cluster for
@@ -82,7 +85,8 @@ PrepareCyteTypeR <- function(obj,
                              n_top_genes = 50,
                              aggregate_metadata = TRUE,
                              min_percentage = 10,
-                             pcent_batch_size = 2000,
+                             max_metadata_categories = 500L,
+                             pcent_batch_size = 5000,
                              coordinates_key = "umap",
                              max_cells_per_group = 1000,
                              vars_h5_path = "vars.h5",
@@ -96,14 +100,15 @@ PrepareCyteTypeR <- function(obj,
   .validate_marker_table(marker_table,sorted_clusters)
 
   if (aggregate_metadata){
-    print("Aggregating metadata...")
-    group_metadata <- .aggregate_metadata(obj, group_key, min_percentage = min_percentage)
+    log_info("Aggregating metadata...")
+    group_metadata <- .aggregate_metadata(obj, group_key, min_percentage = min_percentage,
+                                            max_metadata_categories = max_metadata_categories)
     # Map cluster ids to use those natural numbers
     names(group_metadata) <- cluster_map[names(group_metadata)]
 
   } else{group_metadata <- list()
   }
-  print(paste("Preparing marker genes with top",n_top_genes,"genes..."))
+  log_info("Preparing marker genes with top {n_top_genes} genes...")
 
   marker_genes <- marker_table %>%
     group_by(cluster) %>%
@@ -121,14 +126,14 @@ PrepareCyteTypeR <- function(obj,
   visualization_data <- NULL
   tryCatch({
     coords <- Seurat::Embeddings(obj, reduction = coordinates_key)
-    print("Preparing visualisation data...")
+    log_info("Preparing visualization data...")
     visualization_data <- .sample_visualization_data(obj, group_key, coordinates_key, cluster_map, max_cells_per_group)
   }, error = function(e) {
     log_warn(paste("Could not extract coordinates for reduction '", coordinates_key,
                    "'. Continuing without visualization data. Error:", conditionMessage(e)))
   })
 
-  print("Calculating expression percentages...")
+  log_info("Calculating expression percentages...")
   expression_percentages <- .calculate_pcent(obj, group_key, cluster_map, pcent_batch_size)
 
   # Prep cluster_map to named list for each "group/cluster"
@@ -167,7 +172,7 @@ PrepareCyteTypeR <- function(obj,
     log_info("Built vars.h5 successfully.")
 
     log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
-    
+
     .save_obs_duckdb(obs_duckdb_path, obj@meta.data,
                      coordinates = coords, coordinates_key = coordinates_key)
     log_info("Built obs.duckdb successfully.")
@@ -186,12 +191,13 @@ PrepareCyteTypeR <- function(obj,
     group_key = group_key,
     build_succeeded = build_succeeded,
     vars_h5_path = vars_h5_path,
-    obs_duckdb_path = obs_duckdb_path
+    obs_duckdb_path = obs_duckdb_path,
+    coordinates_key = coordinates_key
   )
   # Store query
   obj@misc$query <- prepped_data
 
-  print("Done!")
+  log_info("Preparation complete.")
   return(prepped_data)
 }
 #'
@@ -216,6 +222,7 @@ PrepareCyteTypeR <- function(obj,
 #' @param save_query Logical. Whether to save the request payload to a JSON file. Default is `TRUE`.
 #' @param query_filename Character. Filename for the saved query when `save_query` is `TRUE`. Default is `"query.json"`.
 #' @param upload_timeout_seconds Integer. Socket read timeout (seconds) for each artifact upload. Default is 3600.
+#' @param upload_max_workers Integer. Maximum number of parallel upload workers. Default is 6.
 #' @param require_artifacts Logical. If `TRUE`, an error during artifact build or upload stops the run; if `FALSE`, failures are skipped and annotation continues without artifacts. Default is `TRUE`.
 #' @param show_progress Logical. Whether to show progress (spinner and cluster status). Set `FALSE` to disable. Default is `TRUE`.
 #' @param override_existing_results Logical. If `TRUE`, allow overwriting existing results with the same `results_prefix`. If `FALSE` and results exist, an error is raised. Default is `FALSE`.
@@ -273,6 +280,7 @@ CyteTypeR <- function(obj,
                       save_query = TRUE,
                       query_filename = "query.json",
                       upload_timeout_seconds = 3600L,
+                      upload_max_workers = 6L,
                       require_artifacts = TRUE,
                       show_progress = TRUE,
                       override_existing_results = FALSE
@@ -307,7 +315,7 @@ CyteTypeR <- function(obj,
   )
 
   group_key <- prepped_data$group_key
-  prepped_data$group_key <- NULL
+  coordinates_key <- prepped_data$coordinates_key %||% "umap"
 
   .validate_input_data(prepped_data)
 
@@ -340,11 +348,13 @@ CyteTypeR <- function(obj,
       obs_duckdb_path <- prepped_data$obs_duckdb_path
 
       log_info("Uploading obs.duckdb (cell metadata)...")
-      cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path, upload_timeout_seconds)
+      cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path,
+                                                  upload_timeout_seconds, max_workers = upload_max_workers, show_progress = show_progress)
       log_info("Uploaded obs.duckdb successfully.")
 
       log_info("Uploading vars.h5 (feature expression)...")
-      feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path, upload_timeout_seconds)
+      feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path,
+                                                    upload_timeout_seconds, max_workers = upload_max_workers, show_progress = show_progress)
       log_info("Uploaded vars.h5 successfully.")
 
       query_list$uploaded_files <- list(
@@ -364,7 +374,7 @@ CyteTypeR <- function(obj,
       }
     })
   }
-  
+
   query_for_json <- .prepare_query_for_json(query_list)
   if (save_query) {
     write_json(query_for_json, path = query_filename, auto_unbox = TRUE, pretty = TRUE)
