@@ -12,6 +12,7 @@ PrepareCyteTypeR(
   n_top_genes = 50,
   aggregate_metadata = TRUE,
   min_percentage = 10,
+  max_metadata_categories = 500L,
   pcent_batch_size = 5000,
   coordinates_key = "umap",
   max_cells_per_group = 1000,
@@ -39,6 +40,10 @@ across cells within each cluster. Default is \code{TRUE}.}
 
 \item{min_percentage}{Numeric threshold for minimum percentage.
 Default is 10.}
+
+\item{max_metadata_categories}{Integer. Maximum number of unique values a
+categorical metadata column may have to be included in aggregation. Columns
+exceeding this limit are silently skipped. Default is 500.}
 
 \item{pcent_batch_size}{Integer specifying batch size for expression percentage
 calculations. Default is 5000.}

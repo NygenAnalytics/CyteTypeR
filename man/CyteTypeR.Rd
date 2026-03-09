@@ -19,6 +19,7 @@ CyteTypeR(
   save_query = TRUE,
   query_filename = "query.json",
   upload_timeout_seconds = 3600L,
+  upload_max_workers = 6L,
   require_artifacts = TRUE,
   show_progress = TRUE,
   override_existing_results = FALSE
@@ -52,6 +53,8 @@ CyteTypeR(
 \item{query_filename}{Character. Filename for the saved query when \code{save_query} is \code{TRUE}. Default is \code{"query.json"}.}
 
 \item{upload_timeout_seconds}{Integer. Socket read timeout (seconds) for each artifact upload. Default is 3600.}
+
+\item{upload_max_workers}{Integer. Maximum number of parallel upload workers. Default is 6.}
 
 \item{require_artifacts}{Logical. If \code{TRUE}, an error during artifact build or upload stops the run; if \code{FALSE}, failures are skipped and annotation continues without artifacts. Default is \code{TRUE}.}
 
