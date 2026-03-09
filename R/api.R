@@ -1,6 +1,30 @@
 # API Response Helper for CyteType
 # HTTP primitives, request utilities, and shared constants for CyteType API communication.
 
+# Upload size limits (numeric to avoid integer overflow)
+.MAX_UPLOAD_BYTES <- list(
+  obs_duckdb = 2 * 1024 * 1024 * 1024,   # 2 GB
+  vars_h5    = 50 * 1024 * 1024 * 1024   # 50 GB
+)
+
+# Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
+.CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
+.CHUNK_UPLOAD_TRANSIENT_STATUSES <- c(500L, 502L, 503L, 504L)
+
+# URL path builder (avoids file.path backslashes on Windows)
+.url_path <- function(...) {
+  x <- vapply(c(...), function(seg) gsub("^/+|/+$", "", as.character(seg)), character(1))
+  paste(x[nzchar(x)], collapse = "/")
+}
+
+.make_req <- function(base_url, path, auth_token) {
+  req <- request(paste0(base_url, "/", path))
+  if (!is.null(auth_token)) {
+    req <- req_headers(req, Authorization = paste("Bearer", auth_token))
+  }
+  return(req)
+}
+
 #' @importFrom httr2 req_auth_bearer_token req_body_json req_headers req_method req_perform req_timeout request resp_body_json resp_body_string resp_status
 .api_response_helper <- function(job_id, api_url, req_item, auth_token = NULL) {
 
