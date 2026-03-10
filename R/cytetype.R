@@ -363,12 +363,13 @@ CyteTypeR <- function(obj,
       )
     }, error = function(e) {
       if (require_artifacts) {
-        log_error("Uploading artifacts failed: {conditionMessage(e)}")
+        log_error(paste("Uploading artifacts failed:", conditionMessage(e),
+        "Set `require_artifacts=FALSE` to continue without uploading artifacts."))
         stop(e)
       } else {
         log_warn(paste(
           "Uploading artifacts failed. Continuing without artifacts.",
-          "Set `require_artifacts=TRUE` to raise this as an error.",
+          "Set `require_artifacts=TRUE` to stop on upload failures.",
           "Original error:", conditionMessage(e)
         ))
       }
@@ -382,8 +383,8 @@ CyteTypeR <- function(obj,
 
   job_id <- .submit_job(query_for_json, api_url, auth_token)
 
-  if (is.na(job_id)) {
-    stop("Job submission failed.")
+  if (is.na(job_id) || is.null(job_id)) {
+    stop("Job submission failed: no job ID returned.", call. = FALSE)
   }
 
   obj <- .store_job_details_seurat(obj, job_id, api_url, results_prefix, group_key, prepped_data$clusterLabels)

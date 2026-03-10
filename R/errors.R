@@ -26,6 +26,13 @@ print.cytetype_api_error <- function(x, ...) {
   NULL
 }
 
+.format_server_error <- function(e) {
+  if (!inherits(e, "httr2_http") || is.null(e$resp)) return(NULL)
+  parsed <- .parse_server_error(e$resp)
+  if (is.null(parsed)) return(NULL)
+  paste0("[", parsed$error_code, "] ", parsed$message)
+}
+
 .stop_if_rate_limited <- function(e) {
   if (inherits(e, "httr2_http") && !is.null(e$resp)) {
     parsed <- .parse_server_error(e$resp)
@@ -38,4 +45,12 @@ print.cytetype_api_error <- function(x, ...) {
       )
     }
   }
+}
+
+.stop_with_server_error <- function(e, context = NULL) {
+  .stop_if_rate_limited(e)
+  detail <- .format_server_error(e)
+  msg <- detail %||% conditionMessage(e)
+  if (!is.null(context)) msg <- paste0(context, ": ", msg)
+  stop(msg, call. = FALSE)
 }

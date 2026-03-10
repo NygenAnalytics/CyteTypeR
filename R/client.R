@@ -30,7 +30,7 @@
       req_timeout(connection_timeout) |>
       req_perform() |>
       resp_body_json(),
-    error = function(e) { .stop_if_rate_limited(e); stop(e) }
+    error = function(e) .stop_with_server_error(e, "Upload initiate failed")
   )
 
   upload_id <- init_resp$upload_id
@@ -82,7 +82,9 @@
         list(ok = TRUE)
       }, error = function(e) {
         .stop_if_rate_limited(e)
-        list(ok = FALSE, chunk_idx = chunk_idx, message = conditionMessage(e))
+        detail <- .format_server_error(e)
+        list(ok = FALSE, chunk_idx = chunk_idx,
+             message = detail %||% conditionMessage(e))
       })
     }
 
@@ -99,7 +101,9 @@
         list(ok = TRUE, etag = etag, part_number = chunk_idx + 1L)
       }, error = function(e) {
         .stop_if_rate_limited(e)
-        list(ok = FALSE, chunk_idx = chunk_idx, message = conditionMessage(e))
+        detail <- .format_server_error(e)
+        list(ok = FALSE, chunk_idx = chunk_idx,
+             message = detail %||% conditionMessage(e))
       })
     }
 
@@ -167,7 +171,7 @@
       req_timeout(connection_timeout) |>
       req_perform() |>
       resp_body_json(),
-    error = function(e) { .stop_if_rate_limited(e); stop(e) }
+    error = function(e) .stop_with_server_error(e, "Upload complete failed")
   )
 
   complete_resp
@@ -216,6 +220,10 @@
     # Check status
     status <- resp_status(response)
     if (status != 200) {
+      parsed <- .parse_server_error(response)
+      if (!is.null(parsed)) {
+        stop(paste0("HTTP ", status, " [", parsed$error_code, "] ", parsed$message))
+      }
       stop("HTTP ", status, ": ", resp_body_string(response))
     }
 
@@ -232,9 +240,7 @@
     return(as.character(job_id))
 
   }, error = function(e) {
-    .stop_if_rate_limited(e)
-    cat("An error occurred:", conditionMessage(e), "\n")
-    return(NA_character_)
+    .stop_with_server_error(e, "Job submission failed")
   })
 }
 
