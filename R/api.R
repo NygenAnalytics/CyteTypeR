@@ -59,6 +59,10 @@
 
     # Check for other non-success status codes
     if (status_code < 200 || status_code >= 300) {
+      parsed <- .parse_server_error(response)
+      if (!is.null(parsed)) {
+        stop(paste0("HTTP ", status_code, " [", parsed$error_code, "] ", parsed$message))
+      }
       error_body <- tryCatch(resp_body_string(response), error = function(e) "Unknown error")
       stop(paste("HTTP", status_code, "error:", error_body))
     }
@@ -117,7 +121,7 @@
     req_perform()
 
   status <- resp_status(resp)
-  if (status >= 400L) {
+  if (status >= 400) {
     stop(cytetype_api_error(
       message = paste0("Presigned upload rejected with HTTP ", status),
       call = "api"

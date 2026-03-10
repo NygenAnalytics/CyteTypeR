@@ -383,8 +383,8 @@ CyteTypeR <- function(obj,
 
   job_id <- .submit_job(query_for_json, api_url, auth_token)
 
-  if (is.na(job_id)) {
-    stop("Job submission failed.")
+  if (is.na(job_id) || is.null(job_id)) {
+    stop("Job submission failed: no job ID returned.", call. = FALSE)
   }
 
   obj <- .store_job_details_seurat(obj, job_id, api_url, results_prefix, group_key, prepped_data$clusterLabels)
