@@ -45,9 +45,9 @@
 
   n_chunks <- if (size > 0) as.integer(ceiling(size / chunk_size)) else 0L
 
-  presigned_urls <- init_resp$presigned_urls %||% init_resp$presignedUrls %||% list()
-  r2_upload_id <- init_resp$r2_upload_id %||% init_resp$r2UploadId %||% NULL
-  use_r2 <- length(presigned_urls) > 0L && !is.null(r2_upload_id)
+  presigned_urls <- init_resp$presigned_urls
+  r2_upload_id <- init_resp$r2_upload_id 
+  use_r2 <- length(presigned_urls) > 0 && !is.null(r2_upload_id)
 
   log_info("Upload {file_kind}: {n_chunks} chunks, use_r2={use_r2}, presigned_urls={length(presigned_urls)}")
 
