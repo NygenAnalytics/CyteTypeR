@@ -28,6 +28,7 @@
   if (is.logical(vec))  return("bool")
   if (is.integer(vec))  return("int32")
   if (is.numeric(vec))  return("float64")
+  if (is.character(vec)) return("string")
   return("object")
 }
 
