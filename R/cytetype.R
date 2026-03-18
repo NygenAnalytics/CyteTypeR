@@ -97,16 +97,16 @@ PrepareCyteTypeR <- function(obj,
   sorted_clusters <- sort(unique(obj[[group_key, drop = TRUE]]))
   cluster_map <- setNames(as.character(1:length(sorted_clusters)), sorted_clusters)
 
-  .validate_marker_table(marker_table,sorted_clusters)
+  .validate_marker_table(marker_table, sorted_clusters)
+  marker_table <- .resolve_marker_gene_symbols(marker_table, obj, gene_symbols)
 
-  if (aggregate_metadata){
+  if (aggregate_metadata) {
     log_info("Aggregating metadata...")
     group_metadata <- .aggregate_metadata(obj, group_key, min_percentage = min_percentage,
                                             max_metadata_categories = max_metadata_categories)
-    # Map cluster ids to use those natural numbers
     names(group_metadata) <- cluster_map[names(group_metadata)]
-
-  } else{group_metadata <- list()
+  } else {
+    group_metadata <- list()
   }
   log_info("Preparing marker genes with top {n_top_genes} genes...")
 
