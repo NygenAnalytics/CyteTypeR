@@ -150,8 +150,8 @@
     max(1L, as.integer(100000000 / max(nrow(raw_mat), 1)))
   } else NULL
 
-  vars_n_batches <- ceiling(n_vars / col_batch))
-  raw_n_batches <- if (!is.null(raw_mat)) ceiling(ncol(raw_mat) / raw_col_batch)) else 0L
+  vars_n_batches <- ceiling(n_vars / col_batch)
+  raw_n_batches <- if (!is.null(raw_mat)) ceiling(ncol(raw_mat) / raw_col_batch) else 0L
   total_batches <- vars_n_batches + raw_n_batches
 
   pb_label <- if (raw_n_batches > 0L) "Writing vars.h5 (normalized + raw)" else "Writing vars.h5"
