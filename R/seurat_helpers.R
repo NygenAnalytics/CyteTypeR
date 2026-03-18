@@ -225,41 +225,121 @@
 }
 
 
-.validate_marker_table <- function(marker_table, sorted_clusters){
+.validate_marker_table <- function(marker_table, sorted_clusters) {
   log_info("Checking markers table...")
   df_like_classes <- c("data.frame", "tbl_df", "tbl", "data.table")
-  if (inherits(marker_table, df_like_classes)){
-    log_info(paste("Provided markers data is a dataframe", cli::symbol$tick))
+  if (!inherits(marker_table, df_like_classes)) {
+    stop("marker_table must be a data.frame (or tibble / data.table)")
   }
+  log_info(paste("Provided markers data is a dataframe", cli::symbol$tick))
 
-  if (any(is.na(marker_table))){
+  if (any(is.na(marker_table))) {
     log_info("NA value(s) found in the table")
+  } else {
+    log_info(paste("No NA values", cli::symbol$tick))
   }
-  else{ log_info(paste("No NA values", cli::symbol$tick))}
 
   table_cols <- names(marker_table)
-  if ("cluster" %in% table_cols){
-    log_info(paste("'cluster' column found in marker table", cli::symbol$tick))
+  if (!("cluster" %in% table_cols)) {
+    stop("'cluster' column not found in marker table. ",
+         "Rename your column to 'cluster' if its name is different.")
   }
-  else{log_info("cluster column not found in marker table, rename your column to 'cluster' if its name is different" )}
+  log_info(paste("'cluster' column found in marker table", cli::symbol$tick))
 
-  # gene symbol column exist?
-  # has gene symbols?
-  if ("gene" %in% table_cols){
-    gene_sym_pattern <- "^[A-Z]([A-Z0-9-]+|[a-z0-9-]+)$"
-    if (is.null(grepl(gene_sym_pattern,marker_table$gene))){
-      log_warn("Not gene symbols?")
-    }
-    else {log_info(paste("Found gene symbols", cli::symbol$tick))}
+  if (!("gene" %in% table_cols)) {
+    stop("'gene' column not found in marker table.")
   }
-  # cluster labels == seurat obj labels?
-  if (setequal(sorted_clusters, as.vector(marker_table$cluster))){
-    log_info(paste("Correct cluster labels", cli::symbol$tick))
+
+  if (!setequal(sorted_clusters, as.vector(marker_table$cluster))) {
+    stop("Cluster labels in marker_table$cluster do not match the Seurat object. ",
+         "Please check if they are consistent.")
   }
-  else{
-    stop("Please check if cluster labels are consistent between marker table and seurat obj!")
-  }
+  log_info(paste("Correct cluster labels", cli::symbol$tick))
   log_info(paste("Markers check: done", cli::symbol$tick))
+}
+
+.ensembl_id_pattern <- "ENS[A-Z]*G[0-9]{11}$|^[NX][MR]_[0-9]+$"
+.gene_sym_pattern   <- "^[A-Z][A-Za-z0-9._-]+$"
+
+.check_marker_gene_symbols <- function(genes) {
+  ensembl_hits <- grepl(.ensembl_id_pattern, genes)
+  ensembl_frac <- sum(ensembl_hits) / length(genes)
+  if (ensembl_frac > 0.5) return("ensembl")
+
+  sym_hits <- grepl(.gene_sym_pattern, genes)
+  sym_frac <- sum(sym_hits) / length(genes)
+  if (sym_frac < 0.5) return("unknown")
+
+  "symbol"
+}
+
+.get_feature_symbol_map <- function(seurat_obj, gene_symbols) {
+  assay_name <- .resolve_seurat_assay_rna(seurat_obj)
+  assay_obj  <- tryCatch(seurat_obj[[assay_name]], error = function(e) NULL)
+  meta_features <- tryCatch(
+    assay_obj@meta.features,
+    error = function(e) tryCatch(assay_obj@meta.data, error = function(e2) NULL)
+  )
+  if (is.null(meta_features)) return(NULL)
+
+  symbols <- meta_features[[gene_symbols]]
+  if (is.null(symbols) || all(is.na(symbols)) || length(symbols) == 0) return(NULL)
+
+  ids <- rownames(meta_features)
+  if (is.null(ids) || length(ids) != length(symbols)) return(NULL)
+
+  stats::setNames(as.character(symbols), ids)
+}
+
+.resolve_marker_gene_symbols <- function(marker_table, seurat_obj, gene_symbols) {
+  genes <- marker_table$gene
+  gene_type <- .check_marker_gene_symbols(genes)
+
+  if (gene_type == "symbol") {
+    log_info(paste("Marker genes are gene symbols", cli::symbol$tick))
+    return(marker_table)
+  }
+
+  if (gene_type == "ensembl") {
+    log_warn("More than half of marker_table$gene values appear to be Ensembl / RefSeq IDs, not gene symbols.")
+  } else {
+    log_warn("Marker gene names do not look like standard gene symbols.")
+  }
+
+  log_info("Attempting to map marker genes to symbols via Seurat feature metadata (column: '{gene_symbols}')...")
+
+  id_to_sym <- .get_feature_symbol_map(seurat_obj, gene_symbols)
+  if (is.null(id_to_sym)) {
+    log_error("Could not retrieve gene symbol mapping from Seurat feature metadata. ",
+              "Marker genes will be sent as-is.")
+    return(marker_table)
+  }
+
+  mapped  <- id_to_sym[genes]
+  matched <- !is.na(mapped) & nzchar(mapped)
+  n_mapped <- sum(matched)
+
+  if (n_mapped == 0L) {
+    log_error("None of the marker gene names could be mapped to symbols. ",
+              "Marker genes will be sent as-is. Check that gene_symbols='{gene_symbols}' is correct.")
+    return(marker_table)
+  }
+
+  marker_table$gene[matched] <- mapped[matched]
+  n_unmapped <- sum(!matched)
+  log_info("Mapped {n_mapped}/{length(genes)} marker genes to symbols.")
+  if (n_unmapped > 0L) {
+    sample_unmapped <- head(genes[!matched], 5L)
+    log_warn("{n_unmapped} marker gene(s) could not be mapped: {paste(sample_unmapped, collapse = ', ')}")
+  }
+
+  resolved_type <- .check_marker_gene_symbols(marker_table$gene)
+  if (resolved_type != "symbol") {
+    log_error("After mapping, marker genes still do not look like standard gene symbols. ",
+              "Annotation quality may be affected.")
+  }
+
+  marker_table
 }
 
 # Store job details in Seurat object misc (no auth_token in stored list).
