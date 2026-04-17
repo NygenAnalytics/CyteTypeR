@@ -64,7 +64,7 @@
       tryCatch({
         con <- file(file_path, "rb")
         on.exit(close(con), add = TRUE)
-        offset <- chunk_idx * chunk_size
+        offset <- as.numeric(chunk_idx) * as.numeric(chunk_size)
         read_size <- min(chunk_size, size - offset)
         seek(con, offset)
         chunk_data <- readBin(con, what = "raw", n = read_size)
@@ -92,7 +92,7 @@
       tryCatch({
         con <- file(file_path, "rb")
         on.exit(close(con), add = TRUE)
-        offset <- chunk_idx * chunk_size
+        offset <- as.numeric(chunk_idx) * as.numeric(chunk_size)
         read_size <- min(chunk_size, size - offset)
         seek(con, offset)
         chunk_data <- readBin(con, what = "raw", n = read_size)
