@@ -343,6 +343,8 @@ CyteTypeR <- function(obj,
   }
 
   if (build_succeeded) {
+    obs_duckdb_uploaded <- FALSE
+    vars_h5_uploaded <- FALSE
     tryCatch({
       vars_h5_path <- prepped_data$vars_h5_path
       obs_duckdb_path <- prepped_data$obs_duckdb_path
@@ -351,24 +353,32 @@ CyteTypeR <- function(obj,
       cell_metadata_upload <- .upload_obs_duckdb(api_url, auth_token, obs_duckdb_path,
                                                   upload_timeout_seconds, max_workers = upload_max_workers, show_progress = show_progress)
       log_info("Uploaded obs.duckdb successfully.")
+      obs_duckdb_uploaded <- TRUE
 
       log_info("Uploading vars.h5 (feature expression)...")
       feature_expression_upload <- .upload_vars_h5(api_url, auth_token, vars_h5_path,
                                                     upload_timeout_seconds, max_workers = upload_max_workers, show_progress = show_progress)
       log_info("Uploaded vars.h5 successfully.")
+      vars_h5_uploaded <- TRUE
 
       query_list$uploaded_files <- list(
         obs_duckdb = cell_metadata_upload$upload_id,
         vars_h5 = feature_expression_upload$upload_id
       )
     }, error = function(e) {
+      artifact_status <- paste0(
+        "Upload status - obs.duckdb: ", obs_duckdb_uploaded,
+        ", vars.h5: ", vars_h5_uploaded, "."
+      )
       if (require_artifacts) {
         log_error(paste("Uploading artifacts failed:", conditionMessage(e),
+        artifact_status,
         "Set `require_artifacts=FALSE` to continue without uploading artifacts."))
         stop(e)
       } else {
         log_warn(paste(
-          "Uploading artifacts failed. Continuing without artifacts.",
+          "Uploading artifacts failed... continuing without artifacts.",
+          artifact_status,
           "Set `require_artifacts=TRUE` to stop on upload failures.",
           "Original error:", conditionMessage(e)
         ))
