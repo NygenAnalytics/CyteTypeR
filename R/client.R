@@ -83,8 +83,10 @@
       }, error = function(e) {
         .stop_if_rate_limited(e)
         detail <- .format_server_error(e)
+        message <- detail %||% conditionMessage(e)
+        log_warn("Upload {file_kind} chunk {chunk_idx + 1L}/{n_chunks} failed: {message}")
         list(ok = FALSE, chunk_idx = chunk_idx,
-             message = detail %||% conditionMessage(e))
+             message = message)
       })
     }
 
@@ -97,13 +99,22 @@
         seek(con, offset)
         chunk_data <- readBin(con, what = "raw", n = read_size)
         presigned_url <- presigned_urls[[chunk_idx + 1L]]
-        etag <- .put_to_presigned_url(presigned_url, chunk_data, timeout_seconds)
+        etag <- .put_to_presigned_url(
+          presigned_url = presigned_url,
+          chunk_data = chunk_data,
+          timeout_seconds = timeout_seconds,
+          file_kind = file_kind,
+          chunk_idx = chunk_idx,
+          n_chunks = n_chunks
+        )
         list(ok = TRUE, etag = etag, part_number = chunk_idx + 1L)
       }, error = function(e) {
         .stop_if_rate_limited(e)
         detail <- .format_server_error(e)
+        message <- detail %||% conditionMessage(e)
+        log_warn("Upload {file_kind} chunk {chunk_idx + 1L}/{n_chunks} failed: {message}")
         list(ok = FALSE, chunk_idx = chunk_idx,
-             message = detail %||% conditionMessage(e))
+             message = message)
       })
     }
 
@@ -150,7 +161,11 @@
     failed <- which(!vapply(chunk_results, function(r) is.list(r) && isTRUE(r$ok), logical(1)))
     if (length(failed) > 0L) {
       r <- chunk_results[[failed[1L]]]
-      stop("Upload chunk ", r$chunk_idx, " failed: ", r$message)
+      stop(
+        "Upload of ", file_kind, " failed: chunk ", (r$chunk_idx + 1L), "/", n_chunks,
+        " (", length(failed), " of ", n_chunks, " chunks failed): ",
+        r$message
+      )
     }
   }
 
