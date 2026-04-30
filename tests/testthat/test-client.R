@@ -198,7 +198,7 @@ test_that("upload stops with error when a chunk fails", {
       "https://api.example.com", NULL, "obs_duckdb", f, 60L,
       max_workers = 1L, show_progress = FALSE
     ),
-    "Upload chunk.*failed"
+    "Upload of obs_duckdb failed: chunk 2/2 \\(1 of 2 chunks failed\\)"
   )
 })
 

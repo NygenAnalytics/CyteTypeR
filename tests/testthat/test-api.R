@@ -78,7 +78,7 @@ test_that(".put_to_presigned_url returns ETag on successful PUT", {
   expect_identical(etag, "\"abc123\"")
 })
 
-test_that(".put_to_presigned_url raises api error on HTTP 4xx", {
+test_that(".put_to_presigned_url raises api error on HTTP 4xx with response body", {
   httr2::local_mocked_responses(function(req) {
     httr2::response(status_code = 403L, body = charToRaw("Forbidden"))
   })
@@ -88,7 +88,7 @@ test_that(".put_to_presigned_url raises api error on HTTP 4xx", {
       charToRaw("chunk-data"),
       60L
     ),
-    "Presigned upload rejected with HTTP 403",
+    "Presigned upload of vars_h5 rejected with HTTP 403; response body: Forbidden",
     class = "cytetype_api_error"
   )
 })
@@ -108,7 +108,7 @@ test_that(".put_to_presigned_url raises network error when ETag header is missin
   )
 })
 
-test_that(".put_to_presigned_url raises api error on HTTP 400", {
+test_that(".put_to_presigned_url raises api error on HTTP 400 with response body", {
   httr2::local_mocked_responses(function(req) {
     httr2::response(status_code = 400L, body = charToRaw("Bad Request"))
   })
@@ -118,7 +118,45 @@ test_that(".put_to_presigned_url raises api error on HTTP 400", {
       charToRaw("chunk-data"),
       60L
     ),
-    "Presigned upload rejected with HTTP 400",
+    "Presigned upload of vars_h5 rejected with HTTP 400; response body: Bad Request",
     class = "cytetype_api_error"
   )
+})
+
+test_that(".put_to_presigned_url includes file_kind and chunk position in error", {
+  httr2::local_mocked_responses(function(req) {
+    httr2::response(status_code = 400L, body = charToRaw("EntityTooSmall"))
+  })
+  expect_error(
+    CyteTypeR:::.put_to_presigned_url(
+      presigned_url = "https://r2.example.com/bucket/chunk/9?sig=xyz",
+      chunk_data = charToRaw("chunk-data"),
+      timeout_seconds = 60L,
+      file_kind = "vars_h5",
+      chunk_idx = 9L,
+      n_chunks = 10L
+    ),
+    "Presigned upload of vars_h5 chunk 10/10 rejected with HTTP 400; response body: EntityTooSmall",
+    class = "cytetype_api_error"
+  )
+})
+
+test_that(".put_to_presigned_url truncates large response bodies", {
+  long_body <- paste(rep("A", 1200L), collapse = "")
+  httr2::local_mocked_responses(function(req) {
+    httr2::response(status_code = 400L, body = charToRaw(long_body))
+  })
+  err <- tryCatch(
+    CyteTypeR:::.put_to_presigned_url(
+      "https://r2.example.com/bucket/chunk/0?sig=xyz",
+      charToRaw("chunk-data"),
+      60L
+    ),
+    cytetype_api_error = function(e) e
+  )
+  expect_s3_class(err, "cytetype_api_error")
+  expect_true(endsWith(err$message, "... [truncated]"))
+  truncated_body <- sub("^.*response body: ", "", err$message)
+  truncated_body <- sub("\\.\\.\\. \\[truncated\\]$", "", truncated_body)
+  expect_identical(truncated_body, paste(rep("A", 500L), collapse = ""))
 })
