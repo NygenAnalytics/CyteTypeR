@@ -106,7 +106,17 @@
 }
 
 # PUT raw bytes to a presigned URL with retry, ETag validation, and proper error classification.
-.put_to_presigned_url <- function(presigned_url, chunk_data, timeout_seconds) {
+.put_to_presigned_url <- function(presigned_url,
+                                  chunk_data,
+                                  timeout_seconds,
+                                  file_kind = "vars_h5",
+                                  chunk_idx = NULL,
+                                  n_chunks = NULL) {
+  chunk_label <- if (!is.null(chunk_idx) && !is.null(n_chunks)) {
+    paste0(" chunk ", chunk_idx + 1L, "/", n_chunks)
+  } else {
+    ""
+  }
   resp <- request(presigned_url) |>
     req_method("PUT") |>
     httr2::req_body_raw(chunk_data, type = "application/octet-stream") |>
@@ -122,8 +132,20 @@
 
   status <- resp_status(resp)
   if (status >= 400) {
+    response_body <- tryCatch(httr2::resp_body_string(resp), error = function(e) NULL)
+    if (!is.null(response_body) && nchar(response_body) > 500L) {
+      response_body <- paste0(substr(response_body, 1L, 500L), "... [truncated]")
+    }
+    body_detail <- if (!is.null(response_body) && nzchar(response_body)) {
+      paste0("; response body: ", response_body)
+    } else {
+      ""
+    }
     stop(cytetype_api_error(
-      message = paste0("Presigned upload rejected with HTTP ", status),
+      message = paste0(
+        "Presigned upload of ", file_kind, chunk_label,
+        " rejected with HTTP ", status, body_detail
+      ),
       call = "api"
     ))
   }
