@@ -81,6 +81,40 @@ test_that(".api_response_helper preserves authentication failures", {
   )
 })
 
+test_that(".api_response_helper preserves rate-limit guidance", {
+  httr2::local_mocked_responses(function(req) {
+    httr2::response(
+      status_code = 429L,
+      headers = list("Content-Type" = "application/json"),
+      body = charToRaw(
+        paste0(
+          '{"detail":{"error_code":"RATE_LIMIT_EXCEEDED",',
+          '"message":"Free-tier limit reached"}}'
+        )
+      )
+    )
+  })
+
+  rate_limit_error <- tryCatch(
+    CyteTypeR:::.api_response_helper(
+      "job-123",
+      "https://api.example.com",
+      "results"
+    ),
+    error = identity
+  )
+
+  expect_s3_class(rate_limit_error, "error")
+  expect_identical(
+    conditionMessage(rate_limit_error),
+    paste0(
+      "Free-tier limit reached\n",
+      "Use your own LLM API key via llm_configs to bypass free-tier limits, ",
+      "or wait before retrying."
+    )
+  )
+})
+
 # --- .put_to_presigned_url ---
 
 test_that(".put_to_presigned_url returns ETag on successful PUT", {

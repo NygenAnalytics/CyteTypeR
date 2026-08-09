@@ -40,7 +40,7 @@
     }
 
     response <- req |>
-      httr2::req_error(is_error = function(resp) FALSE) |>
+      httr2::req_error(is_error = function(resp) resp_status(resp) == 429L) |>
       req_perform()
     status_code <- resp_status(response)
 
