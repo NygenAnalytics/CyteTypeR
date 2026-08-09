@@ -60,6 +60,27 @@ test_that(".make_req omits Authorization header when token is NULL", {
   expect_false("Authorization" %in% names(req$headers))
 })
 
+test_that(".api_response_helper preserves authentication failures", {
+  httr2::local_mocked_responses(function(req) {
+    httr2::response(
+      status_code = 401L,
+      headers = list("Content-Type" = "application/json"),
+      body = charToRaw('{"detail":"Invalid API token"}')
+    )
+  })
+
+  expect_error(
+    CyteTypeR:::.api_response_helper(
+      "job-123",
+      "https://api.example.com",
+      "results",
+      "expired-token"
+    ),
+    "Invalid or expired auth token",
+    class = "cytetype_auth_error"
+  )
+})
+
 # --- .put_to_presigned_url ---
 
 test_that(".put_to_presigned_url returns ETag on successful PUT", {

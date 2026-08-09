@@ -264,10 +264,11 @@
 
 # Store job details in Seurat object misc (no auth_token in stored list).
 .store_job_details_seurat <- function(obj, job_id, api_url, results_prefix, group_key = NULL, cluster_labels = NULL) {
+  api_url <- .validate_api_url(api_url)
   if (is.null(obj@misc)) obj@misc <- list()
   obj@misc[[paste0(results_prefix, "_jobDetails")]] <- list(
     job_id = job_id,
-    report_url = file.path(api_url, "report", job_id),
+    report_url = .url_path(api_url, "report", job_id),
     api_url = api_url,
     group_key = group_key,
     cluster_labels = cluster_labels

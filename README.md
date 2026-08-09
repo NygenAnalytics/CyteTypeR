@@ -13,7 +13,7 @@
 ---
 
 > 🎉 **NEW:** [Preprint published November 7, 2025](https://www.biorxiv.org/content/10.1101/2025.11.06.686964v1) on bioRxiv  
-> 📅 **FREE Webinar:** [Register now](https://attendee.gotowebinar.com/register/1731194703386732893) — Learn CyteType from the developers
+> 📅 **FREE Webinar:** [Register now](https://attendee.gotowebinar.com/register/1731194703386732893). Learn CyteType from the developers.
 
 ---
 
@@ -23,14 +23,14 @@ Manual cell type annotation takes weeks and varies between experts. CyteTypeR de
 
 <img width="800" alt="CyteType Overview" src="https://github.com/user-attachments/assets/c4cc4f67-9c63-4590-9717-c2391b3e5faf" />
 
-- **Save weeks of manual curation** — Annotate entire datasets at expert level in minutes, not days
-- **Drop-in integration** — 3 lines of code, works with existing Scanpy/Seurat workflows
-- **No setup friction** — No API keys required; built-in LLM with optional custom configuration
-- **Standards-compliant output** — Automatic Cell Ontology term mapping (CL IDs)
-- **Comprehensive annotations** — Cell types, subtypes, activation states, confidence scores, and lineage
-- **Transparent and auditable** — Interactive HTML reports show evidence, reasoning, and confidence for every annotation
+- **Save weeks of manual curation:** Annotate entire datasets at expert level in minutes, not days
+- **Simple integration:** Works with existing Scanpy and Seurat workflows
+- **No LLM key required:** Uses a built-in LLM with optional custom configuration
+- **Standards-compliant output:** Automatic Cell Ontology term mapping (CL IDs)
+- **Comprehensive annotations:** Cell types, subtypes, activation states, confidence scores, and lineage
+- **Transparent and auditable:** Interactive HTML reports show evidence, reasoning, and confidence for every annotation
 
-**[See example report](https://prod.cytetype.nygen.io/report/6420a807-8bf3-4c33-8731-7617edfc2ad0?v=251124)**
+**[See example report](https://cytetype.nygen.io/report/6420a807-8bf3-4c33-8731-7617edfc2ad0?v=251124)**
 
 ---
 
@@ -45,11 +45,70 @@ library(devtools)
 install_github("NygenAnalytics/CyteTypeR")
 ```
 
+## Authentication
+
+CyteTypeR uses `https://cytetype.nygen.io` by default.
+
+### Sign in from R
+
+```R
+library(CyteTypeR)
+
+SetupCyteTypeR()
+```
+
+If you already have a CyteType API key, save it through a hidden prompt:
+
+```R
+LoginCyteTypeR()
+```
+
+### Install and use the terminal command
+
+Install the `cytetyper` command into the active R environment:
+
+```R
+InstallCyteTypeRCli()
+```
+
+Then authenticate directly from the terminal:
+
+```sh
+cytetyper setup
+cytetyper dashboard
+cytetyper view <JOB_ID>
+cytetyper logout
+```
+
+The R and Python clients share credentials through the same local CyteType credentials file.
+
+### Development environments
+
+Use the development URL provided for your environment in place of `<URL>`. Do not add internal development URLs to documentation or source files.
+
+```R
+SetupCyteTypeR(api_url = "<URL>")
+```
+
+```sh
+cytetyper setup --api-url "<URL>"
+```
+
+[For development environments] You can also configure the URL for the current shell:
+
+```sh
+export CYTETYPE_API_URL="<URL>"
+cytetyper setup
+```
+
 ## Quick Start
 
 ```R
 # Load package
 library(CyteTypeR)
+
+# Sign in once on each machine
+SetupCyteTypeR()
 
 prepped_data <- PrepareCyteTypeR(
   pbmc,
@@ -66,15 +125,15 @@ metadata <- list(
   experiment_name = 'pbmc_human_samples_study'
 )
 
-results <- CyteTypeR(
-  obj=pbmc,
-  prepped_data = prepped_data, 
-  study_context = "pbmc blood samples from humans", 
+annotated_pbmc <- CyteTypeR(
+  obj = pbmc,
+  prepped_data = prepped_data,
+  study_context = "PBMC blood samples from humans",
   metadata = metadata
 )
 ```
 
-> **Note:** No API keys required for default configuration. See [custom LLM configuration](docs/configurations.md#llm-configurations) for advanced options.
+> **Note:** CyteTypeR requires a one-time browser sign-in. You do not need an LLM-provider API key for the default configuration. See [custom LLM configuration](docs/configurations.md#llm-configurations) for advanced options.
 
 **Using Scanpy/Anndata?** → [CyteType](https://github.com/NygenAnalytics/CyteType)
 
@@ -86,7 +145,7 @@ Each analysis generates an HTML report documenting annotation decisions, marker 
 
 <img width="1000" alt="CyteType Report Example" src="https://github.com/user-attachments/assets/e5373fdd-7173-42db-b863-76a1e8ecfe01" />
 
-**[View example report with embedded chat interface](https://prod.cytetype.nygen.io/report/e70e2883-7713-4121-94f2-5b57eabd1468?v=260303)**
+**[View example report with embedded chat interface](https://cytetype.nygen.io/report/e70e2883-7713-4121-94f2-5b57eabd1468?v=260303)**
 
 ---
 
@@ -126,7 +185,7 @@ If you use CyteTypeR in your research, please cite our preprint:
 
 ## License
 
-CyteTypeR is free for academic and non-commercial research use under CC BY‑NC‑SA 4.0 — see [LICENSE.md](LICENSE.md)
+CyteTypeR is free for academic and non-commercial research use under CC BY‑NC‑SA 4.0. See [LICENSE.md](LICENSE.md).
 
 For commercial use, please contact us at [contact@nygen.io](mailto:contact@nygen.io)
 

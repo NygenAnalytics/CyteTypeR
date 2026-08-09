@@ -33,7 +33,9 @@ cluster assignments. Default is "seurat_clusters".}
 \item{gene_symbols}{Character string specifying the gene symbol field name. Default is 'gene_symbols'.}
 
 \item{n_top_genes}{Integer specifying the maximum number of top marker genes
-per cluster to include (filtered by avg_log2FC > 1). Default is 50.}
+per cluster to include after ordering by \code{avg_log2FC}. Filter
+\code{marker_table} before calling this function when a fold-change threshold is
+required. Default is 50.}
 
 \item{aggregate_metadata}{Logical indicating whether to aggregate metadata
 across cells within each cluster. Default is \code{TRUE}.}
@@ -52,7 +54,7 @@ calculations. Default is 5000.}
 to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".}
 
 \item{max_cells_per_group}{Integer specifying maximum cells per cluster for
-subsampling (currently unused). Default is 1000.}
+visualization subsampling. Default is 1000.}
 
 \item{vars_h5_path}{Character string specifying the local file path for the
 generated vars.h5 artifact (feature expression). Default is \code{"vars.h5"}.}

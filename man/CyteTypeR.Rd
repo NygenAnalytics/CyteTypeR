@@ -44,11 +44,18 @@ CyteTypeR(
 
 \item{timeout_seconds}{Integer. Maximum time (seconds) to wait for results before erroring. Default from options (7200).}
 
-\item{api_url}{Optional character. CyteType API base URL. If \code{NULL}, uses the option/default URL. Default is \code{NULL}.}
+\item{api_url}{Optional character. CyteType API server origin. If \code{NULL},
+uses \code{CYTETYPE_API_URL}, the configured R option, or
+\verb{https://cytetype.nygen.io}.}
 
-\item{auth_token}{Optional character. Bearer token for API auth. If \code{NULL}, uses none. Default is \code{NULL}.}
+\item{auth_token}{Optional character. Bearer token for API authentication.
+If \code{NULL}, uses credentials saved by \code{\link[=SetupCyteTypeR]{SetupCyteTypeR()}} or
+\code{\link[=LoginCyteTypeR]{LoginCyteTypeR()}}.}
 
-\item{save_query}{Logical. Whether to save the request payload to a JSON file. Default is \code{TRUE}.}
+\item{save_query}{Logical. Whether to save the request payload to a JSON
+file. Default is \code{TRUE}. Set this to \code{FALSE} when \code{llm_configs} contains
+provider credentials because the saved payload includes the complete LLM
+configuration.}
 
 \item{query_filename}{Character. Filename for the saved query when \code{save_query} is \code{TRUE}. Default is \code{"query.json"}.}
 
@@ -74,14 +81,14 @@ and integration of annotations back into the Seurat object.
 The function performs the following workflow:
 \enumerate{
 \item Constructs the analysis query from prepared data
-\item Saves query and job details to local JSON files
-\item Submits job to CyteType API
+\item Optionally saves the query to a JSON file
+\item Submits the job and records its details in the returned object
 \item Polls for job completion with progress updates
-\item Retrieves results and integrates annotations into Seurat object
+\item Retrieves results and integrates annotations into the Seurat object
 }
 
-Job details are automatically saved to \verb{job_details_\{job_id\}.json} for
-later reference or manual result retrieval.
+Job details are stored in the returned Seurat object's \code{misc} slot for later
+retrieval with \code{\link[=GetResults]{GetResults()}}.
 }
 \examples{
 \dontrun{

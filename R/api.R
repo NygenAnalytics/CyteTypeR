@@ -39,7 +39,9 @@
       req <- req |> req_auth_bearer_token(auth_token)
     }
 
-    response <- req |> req_perform()
+    response <- req |>
+      httr2::req_error(is_error = function(resp) FALSE) |>
+      req_perform()
     status_code <- resp_status(response)
 
     # Handle specific status codes with switch for clarity
@@ -49,11 +51,17 @@
            },
            "401" = {
              log_debug("Authentication failed for job {job_id}")
-             stop("Authentication failed: Invalid or expired auth token")
+             .stop_authentication(
+               "Authentication failed: Invalid or expired auth token",
+               "INVALID_TOKEN"
+             )
            },
            "403" = {
              log_debug("Authorization failed for job {job_id}")
-             stop("Authorization failed: Access denied")
+             .stop_authentication(
+               "Authorization failed: Access denied",
+               "ACCESS_DENIED"
+             )
            }
     )
 
