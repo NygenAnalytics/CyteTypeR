@@ -43,7 +43,7 @@ Remote API URLs must use HTTPS. Plain HTTP is accepted only for `localhost` and 
 
 ## Authentication
 
-`SetupCyteTypeR()` opens the browser-based email and one-time-code flow. `LoginCyteTypeR()` validates and saves an existing API key through a hidden prompt.
+`SetupCyteTypeR()` validates matching saved credentials or opens the browser-based email and one-time-code flow when none are available. If the saved key is invalid or inactive, use `SetupCyteTypeR(force = TRUE)` or `cytetyper setup --force` to authenticate with a new key. `LoginCyteTypeR()` validates and saves an existing API key through a hidden prompt.
 
 ```{r eval=FALSE}
 SetupCyteTypeR()

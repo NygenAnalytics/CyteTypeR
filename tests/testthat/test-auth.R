@@ -473,6 +473,23 @@ test_that("setup reuses matching credentials without opening a browser", {
   .with_temp_config_home({
     existing <- .auth_credentials()
     CyteTypeR:::.save_credentials(existing)
+    httr2::local_mocked_responses(function(req) {
+      expect_match(req$url, "/auth/cli/credentials$", perl = TRUE)
+      expect_true("Authorization" %in% names(req$headers))
+      httr2::response(
+        status_code = 200L,
+        headers = list("Content-Type" = "application/json"),
+        body = charToRaw(jsonlite::toJSON(
+          list(
+            tokenId = "refreshed-token-id",
+            userId = "refreshed-user-id",
+            email = "current@example.com",
+            dashboardUrl = "https://api.example.com/dashboard"
+          ),
+          auto_unbox = TRUE
+        ))
+      )
+    })
     testthat::local_mocked_bindings(
       .run_browser_setup = function(...) {
         fail("Existing setup must not open a browser")
@@ -488,11 +505,16 @@ test_that("setup reuses matching credentials without opening a browser", {
       type = "output"
     )
 
+    stored <- CyteTypeR:::.load_credentials()
+    expect_identical(stored$apiToken, existing$apiToken)
+    expect_identical(stored$tokenId, "refreshed-token-id")
+    expect_identical(stored$userId, "refreshed-user-id")
+    expect_identical(stored$email, "current@example.com")
     expect_identical(
       result,
-      CyteTypeR:::.credential_metadata(existing)
+      CyteTypeR:::.credential_metadata(stored)
     )
-    expect_true(any(grepl(existing$email, messages, fixed = TRUE)))
+    expect_true(any(grepl(stored$email, messages, fixed = TRUE)))
     expect_true(any(grepl(
       CyteTypeR:::.CYTETYPE_NYGEN_BANNER[[1]],
       console_output,
@@ -500,7 +522,138 @@ test_that("setup reuses matching credentials without opening a browser", {
     )))
     expect_true(any(grepl("Nygen Analytics:", console_output, fixed = TRUE)))
     expect_true(any(grepl("https://nygen.io", console_output, fixed = TRUE)))
-    expect_false(any(grepl(existing$apiToken, console_output, fixed = TRUE)))
+    expect_false(any(grepl(
+      existing$apiToken,
+      c(console_output, messages),
+      fixed = TRUE
+    )))
+  })
+})
+
+test_that("setup rejects invalid saved credentials without changing them", {
+  .with_temp_config_home({
+    existing <- .auth_credentials()
+    CyteTypeR:::.save_credentials(existing)
+    httr2::local_mocked_responses(function(req) {
+      httr2::response(
+        status_code = 401L,
+        headers = list("Content-Type" = "application/json"),
+        body = charToRaw(jsonlite::toJSON(
+          list(detail = list(
+            error_code = "INVALID_TOKEN",
+            message = "Invalid API token"
+          )),
+          auto_unbox = TRUE
+        ))
+      )
+    })
+    testthat::local_mocked_bindings(
+      .run_browser_setup = function(...) {
+        fail("Invalid setup must not open a browser")
+      },
+      .package = "CyteTypeR"
+    )
+
+    expect_error(
+      suppressMessages(SetupCyteTypeR("https://api.example.com")),
+      "cytetyper setup --force",
+      class = "cytetype_auth_error"
+    )
+    expect_identical(CyteTypeR:::.load_credentials(), existing)
+  })
+})
+
+test_that("setup preserves inactive-token errors and saved credentials", {
+  .with_temp_config_home({
+    existing <- .auth_credentials()
+    CyteTypeR:::.save_credentials(existing)
+    httr2::local_mocked_responses(function(req) {
+      httr2::response(
+        status_code = 403L,
+        headers = list("Content-Type" = "application/json"),
+        body = charToRaw(jsonlite::toJSON(
+          list(detail = list(
+            error_code = "TOKEN_INACTIVE",
+            message = "API token has been deactivated"
+          )),
+          auto_unbox = TRUE
+        ))
+      )
+    })
+    testthat::local_mocked_bindings(
+      .run_browser_setup = function(...) {
+        fail("Inactive setup must not open a browser")
+      },
+      .package = "CyteTypeR"
+    )
+
+    error <- tryCatch(
+      suppressMessages(SetupCyteTypeR("https://api.example.com")),
+      cytetype_auth_error = identity
+    )
+    expect_s3_class(error, "cytetype_auth_error")
+    expect_identical(error$error_code, "TOKEN_INACTIVE")
+    expect_match(conditionMessage(error), "cytetyper setup --force")
+    expect_identical(CyteTypeR:::.load_credentials(), existing)
+  })
+})
+
+test_that("setup reports validation network errors without changing credentials", {
+  .with_temp_config_home({
+    existing <- .auth_credentials()
+    CyteTypeR:::.save_credentials(existing)
+    httr2::local_mocked_responses(function(req) {
+      stop("offline")
+    })
+    testthat::local_mocked_bindings(
+      .run_browser_setup = function(...) {
+        fail("Failed validation must not open a browser")
+      },
+      .package = "CyteTypeR"
+    )
+
+    error <- tryCatch(
+      suppressMessages(SetupCyteTypeR("https://api.example.com")),
+      cytetype_auth_error = identity
+    )
+    expect_s3_class(error, "cytetype_auth_error")
+    expect_identical(error$error_code, "NETWORK_ERROR")
+    expect_match(conditionMessage(error), "Could not validate the saved API key")
+    expect_false(grepl("--force", conditionMessage(error), fixed = TRUE))
+    expect_identical(CyteTypeR:::.load_credentials(), existing)
+  })
+})
+
+test_that("forced setup skips validation and replaces saved credentials", {
+  .with_temp_config_home({
+    existing <- .auth_credentials()
+    refreshed <- .auth_credentials(
+      api_token = "cyt_p_reauthenticated_secret"
+    )
+    refreshed$email <- "current@example.com"
+    CyteTypeR:::.save_credentials(existing)
+    testthat::local_mocked_bindings(
+      .perform_auth_request = function(...) {
+        fail("Forced setup must not validate saved credentials")
+      },
+      .run_browser_setup = function(...) refreshed,
+      .package = "CyteTypeR"
+    )
+
+    messages <- capture.output(
+      result <- SetupCyteTypeR(
+        "https://api.example.com",
+        force = TRUE
+      ),
+      type = "message"
+    )
+
+    expect_identical(CyteTypeR:::.load_credentials(), refreshed)
+    expect_identical(
+      result,
+      CyteTypeR:::.credential_metadata(refreshed)
+    )
+    expect_false(any(grepl(refreshed$apiToken, messages, fixed = TRUE)))
   })
 })
 

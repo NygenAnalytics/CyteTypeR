@@ -4,28 +4,32 @@
 \alias{SetupCyteTypeR}
 \title{Set up CyteType authentication}
 \usage{
-SetupCyteTypeR(api_url = NULL)
+SetupCyteTypeR(api_url = NULL, force = FALSE)
 }
 \arguments{
 \item{api_url}{Optional CyteType server origin. When \code{NULL}, uses
 \code{CYTETYPE_API_URL} or \verb{https://cytetype.nygen.io}.}
+
+\item{force}{Whether to skip saved credential validation and authenticate
+with a new key.}
 }
 \value{
 The saved credential metadata, invisibly.
 }
 \description{
-Opens CyteType sign-in in a browser and stores the resulting personal API
-key in the shared CyteType credentials file.
+Validates matching saved credentials. When none are available, opens
+CyteType sign-in in a browser and stores the resulting personal API key.
 }
 \details{
 The browser flow verifies the user's email with a one-time code and returns
 to a local callback server. CyteTypeR and the Python client use the same
 credentials file. For development, pass the development server origin as
-\code{api_url}.
+\code{api_url}. If a saved key is invalid or inactive, use \code{force = TRUE}.
 }
 \examples{
 \dontrun{
 SetupCyteTypeR()
+SetupCyteTypeR(force = TRUE)
 SetupCyteTypeR(api_url = "<URL>")
 }
 }

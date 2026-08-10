@@ -8,10 +8,13 @@
 
 test_that("setup commands pass an explicit development API URL", {
   api_url <- "https://development.example.com"
-  setup_urls <- character()
+  setup_calls <- list()
   testthat::local_mocked_bindings(
-    SetupCyteTypeR = function(api_url = NULL) {
-      setup_urls <<- c(setup_urls, api_url)
+    SetupCyteTypeR = function(api_url = NULL, force = FALSE) {
+      setup_calls[[length(setup_calls) + 1L]] <<- list(
+        apiUrl = api_url,
+        force = force
+      )
       invisible(list())
     },
     .package = "CyteTypeR"
@@ -24,11 +27,18 @@ test_that("setup commands pass an explicit development API URL", {
   expect_identical(
     CyteTypeR:::.cytetyper_cli_main(c(
       "get-key",
-      paste0("--api-url=", api_url)
+      paste0("--api-url=", api_url),
+      "--force"
     )),
     0L
   )
-  expect_identical(setup_urls, c(api_url, api_url))
+  expect_identical(
+    setup_calls,
+    list(
+      list(apiUrl = api_url, force = FALSE),
+      list(apiUrl = api_url, force = TRUE)
+    )
+  )
 })
 
 test_that("CLI commands route to the matching R functions", {
@@ -104,6 +114,7 @@ test_that("CLI help and version return successfully", {
     "Usage: cytetyper setup",
     fixed = TRUE
   )
+  expect_match(paste(command_help, collapse = "\n"), "--force", fixed = TRUE)
   expect_identical(version_status, 0L)
   expect_identical(version_output, "cytetyper 0.4.2-test")
 })
@@ -118,13 +129,21 @@ test_that("CLI parse failures return status one with concise errors", {
     "--api-url=https://one.example.com",
     "--api-url=https://two.example.com"
   ))
+  duplicate_force <- .capture_cytetyper_error(c(
+    "setup",
+    "--force",
+    "--force"
+  ))
+  unsupported_force <- .capture_cytetyper_error(c("login", "--force"))
 
   for (result in list(
     unknown,
     missing_url,
     missing_job,
     extra_argument,
-    duplicate_url
+    duplicate_url,
+    duplicate_force,
+    unsupported_force
   )) {
     expect_identical(result$status, 1L)
     expect_match(result$messages[[1]], "^Error: ")
@@ -134,6 +153,8 @@ test_that("CLI parse failures return status one with concise errors", {
   expect_match(missing_job$messages[[1]], "1 positional argument")
   expect_match(extra_argument$messages[[1]], "no positional arguments")
   expect_match(duplicate_url$messages[[1]], "only be provided once")
+  expect_match(duplicate_force$messages[[1]], "only be provided once")
+  expect_match(unsupported_force$messages[[1]], "Unknown option")
 })
 
 test_that("launcher selection supports Unix and Windows R environments", {

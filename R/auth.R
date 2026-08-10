@@ -430,9 +430,22 @@
 
   status <- httr2::resp_status(response)
   if (status < 200L || status >= 300L) {
+    error_code <- if (status == 401L) {
+      "INVALID_TOKEN"
+    } else {
+      "AUTHENTICATION_FAILED"
+    }
+    body <- tryCatch(
+      httr2::resp_body_json(response, simplifyVector = TRUE),
+      error = function(e) NULL
+    )
+    if (is.list(body) && is.list(body$detail) &&
+        .is_scalar_string(body$detail$error_code)) {
+      error_code <- body$detail$error_code
+    }
     .stop_authentication(
       .auth_error_message(response, fallback),
-      if (status == 401L) "INVALID_TOKEN" else "AUTHENTICATION_FAILED"
+      error_code
     )
   }
   response
@@ -856,34 +869,85 @@
 
 #' Set up CyteType authentication
 #'
-#' Opens CyteType sign-in in a browser and stores the resulting personal API
-#' key in the shared CyteType credentials file.
+#' Validates matching saved credentials. When none are available, opens
+#' CyteType sign-in in a browser and stores the resulting personal API key.
 #'
 #' @param api_url Optional CyteType server origin. When `NULL`, uses
 #'   `CYTETYPE_API_URL` or `https://cytetype.nygen.io`.
+#' @param force Whether to skip saved credential validation and authenticate
+#'   with a new key.
 #' @return The saved credential metadata, invisibly.
 #' @details
 #' The browser flow verifies the user's email with a one-time code and returns
 #' to a local callback server. CyteTypeR and the Python client use the same
 #' credentials file. For development, pass the development server origin as
-#' `api_url`.
+#' `api_url`. If a saved key is invalid or inactive, use `force = TRUE`.
 #' @examples
 #' \dontrun{
 #' SetupCyteTypeR()
+#' SetupCyteTypeR(force = TRUE)
 #' SetupCyteTypeR(api_url = "<URL>")
 #' }
 #' @export
-SetupCyteTypeR <- function(api_url = NULL) {
+SetupCyteTypeR <- function(api_url = NULL, force = FALSE) {
+  if (!is.logical(force) || length(force) != 1L || is.na(force)) {
+    stop("force must be TRUE or FALSE", call. = FALSE)
+  }
   api_url <- .resolve_api_url(api_url)
   .print_setup_banner()
-  existing <- .load_credentials(api_url)
+  existing <- if (force) NULL else .load_credentials(api_url)
   if (!is.null(existing)) {
-    dashboard_url <- .resolve_dashboard_url(existing)
+    credentials <- tryCatch(
+      {
+        response <- .perform_auth_request(
+          httr2::request(.url_path(
+            api_url,
+            "auth",
+            "cli",
+            "credentials"
+          )) |>
+            httr2::req_auth_bearer_token(existing$apiToken) |>
+            httr2::req_timeout(30),
+          "Could not validate the saved API key"
+        )
+        data <- tryCatch(
+          httr2::resp_body_json(response, simplifyVector = TRUE),
+          error = function(e) NULL
+        )
+        tryCatch(
+          .validate_credentials(c(
+            list(apiUrl = api_url, apiToken = existing$apiToken),
+            data
+          )),
+          error = function(e) {
+            .stop_authentication(
+              "Server returned invalid CLI credentials",
+              "INVALID_RESPONSE"
+            )
+          }
+        )
+      },
+      cytetype_auth_error = function(error) {
+        if (error$error_code %in% c("INVALID_TOKEN", "TOKEN_INACTIVE")) {
+          .stop_authentication(
+            paste0(
+              conditionMessage(error),
+              ". Run SetupCyteTypeR(force = TRUE) or ",
+              "`cytetyper setup --force` to re-authenticate with a new key"
+            ),
+            error$error_code
+          )
+        }
+        stop(error)
+      }
+    )
+    .save_credentials(credentials)
+    dashboard_url <- .resolve_dashboard_url(credentials)
     cli::cli_inform(c(
-      "CyteType is already configured for {existing$email}.",
+      "CyteType is already configured for {credentials$email}.",
       "Dashboard: {.url {dashboard_url}}"
     ))
-    return(invisible(.credential_metadata(existing)))
+    return(invisible(.credential_metadata(credentials)))
   }
 
   credentials <- .run_browser_setup(api_url)

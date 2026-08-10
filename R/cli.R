@@ -5,8 +5,8 @@
     "Authenticate with CyteType and open your jobs.",
     "",
     "Usage:",
-    "  cytetyper setup [--api-url URL]",
-    "  cytetyper get-key [--api-url URL]",
+    "  cytetyper setup [--api-url URL] [--force]",
+    "  cytetyper get-key [--api-url URL] [--force]",
     "  cytetyper login [--api-url URL]",
     "  cytetyper logout",
     "  cytetyper dashboard",
@@ -24,6 +24,7 @@
     "Options:",
     "  --api-url URL  CyteType server origin. Defaults to",
     "                 CYTETYPE_API_URL or the production server.",
+    "  --force        Re-authenticate without validating saved credentials.",
     "  -h, --help     Show help.",
     "  --version      Show the installed CyteTypeR version.",
     sep = "\n"
@@ -34,13 +35,15 @@
   switch(
     command,
     setup = paste(
-      "Usage: cytetyper setup [--api-url URL]",
+      "Usage: cytetyper setup [--api-url URL] [--force]",
       "",
       "Sign in through the browser and save a personal API key.",
+      "",
+      "--force re-authenticates without validating saved credentials.",
       sep = "\n"
     ),
     `get-key` = paste(
-      "Usage: cytetyper get-key [--api-url URL]",
+      "Usage: cytetyper get-key [--api-url URL] [--force]",
       "",
       "Alias for cytetyper setup.",
       sep = "\n"
@@ -85,9 +88,11 @@
   args,
   command,
   allow_api_url = FALSE,
+  allow_force = FALSE,
   positional_count = 0L
 ) {
   api_url <- NULL
+  force <- FALSE
   positionals <- character()
   show_help <- FALSE
   index <- 1L
@@ -96,6 +101,21 @@
     argument <- args[[index]]
     if (argument %in% c("-h", "--help")) {
       show_help <- TRUE
+      index <- index + 1L
+      next
+    }
+
+    if (identical(argument, "--force")) {
+      if (!allow_force) {
+        stop(
+          paste0("Unknown option for ", command, ": --force"),
+          call. = FALSE
+        )
+      }
+      if (force) {
+        stop("--force may only be provided once", call. = FALSE)
+      }
+      force <- TRUE
       index <- index + 1L
       next
     }
@@ -162,6 +182,7 @@
 
   list(
     apiUrl = api_url,
+    force = force,
     positionals = positionals,
     showHelp = show_help
   )
@@ -199,11 +220,13 @@
   }
 
   allows_api_url <- command %in% c("setup", "get-key", "login", "view")
+  allows_force <- command %in% c("setup", "get-key")
   positional_count <- if (identical(command, "view")) 1L else 0L
   parsed <- .parse_cytetyper_command(
     command_args,
     command,
     allow_api_url = allows_api_url,
+    allow_force = allows_force,
     positional_count = positional_count
   )
   if (parsed$showHelp) {
@@ -212,7 +235,7 @@
   }
 
   if (command %in% c("setup", "get-key")) {
-    SetupCyteTypeR(api_url = parsed$apiUrl)
+    SetupCyteTypeR(api_url = parsed$apiUrl, force = parsed$force)
   } else if (identical(command, "login")) {
     LoginCyteTypeR(api_url = parsed$apiUrl)
   } else if (identical(command, "logout")) {
