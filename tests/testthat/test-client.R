@@ -246,6 +246,28 @@ test_that(".make_results_request returns 'error' on unexpected exception", {
   expect_true(grepl("connection refused", resp$message))
 })
 
+test_that(".make_results_request preserves authentication failures", {
+  testthat::local_mocked_bindings(
+    .api_response_helper = function(...) {
+      CyteTypeR:::.stop_authentication(
+        "Authentication failed: Invalid or expired auth token",
+        "INVALID_TOKEN"
+      )
+    },
+    .package = "CyteTypeR"
+  )
+
+  expect_error(
+    CyteTypeR:::.make_results_request(
+      "job1",
+      "https://example.com",
+      "expired-token"
+    ),
+    "Invalid or expired auth token",
+    class = "cytetype_auth_error"
+  )
+})
+
 # --- .poll_for_results tests ---
 
 test_that("poll stops after consecutive 'error' statuses", {

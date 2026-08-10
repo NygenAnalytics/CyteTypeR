@@ -265,6 +265,9 @@
       results_resp <- tryCatch(
         .api_response_helper(job_id, api_url, 'results', auth_token),
         error = function(e) {
+          if (inherits(e, "cytetype_auth_error")) {
+            stop(e)
+          }
           make_response(
             "failed",
             message = paste("Job completed but results unavailable:", e$message),
@@ -316,6 +319,9 @@
     ))
 
   }, error = function(e) {
+    if (inherits(e, "cytetype_auth_error")) {
+      stop(e)
+    }
     return(make_response(
       "error",
       message = paste("Error checking job status:", e$message)

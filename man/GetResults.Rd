@@ -8,7 +8,8 @@ GetResults(
   obj = NULL,
   job_id = NULL,
   results_prefix = "cytetype",
-  auth_token = NULL
+  auth_token = NULL,
+  api_url = NULL
 )
 }
 \arguments{
@@ -18,14 +19,21 @@ GetResults(
 
 \item{results_prefix}{Prefix used when storing results. Default \code{"cytetype"}.}
 
-\item{auth_token}{Optional bearer token for API fetch.}
+\item{auth_token}{Optional bearer token for API fetch. If \code{NULL}, uses
+saved CyteType credentials. When retrieving a job stored in \code{obj}, an
+explicit token also requires a matching \code{api_url}.}
+
+\item{api_url}{Optional CyteType server origin for standalone or legacy job
+retrieval. When \code{NULL}, uses \code{CYTETYPE_API_URL} or
+\verb{https://cytetype.nygen.io}.}
 }
 \value{
 Result list (annotations, summary, etc.), or transformed results when fetching by \code{job_id} only.
 }
 \description{
-If \code{obj} and \code{results_prefix} are given, tries to load from \code{obj@misc} first;
-if not found but job details exist, fetches from the API and stores in \code{obj}.
+If \code{obj} and \code{results_prefix} are given, tries to load from
+\code{obj@misc} first. If no local result exists but job details are
+available, fetches the result from the API.
 If only \code{job_id} is given, fetches from the API and returns (saves JSON).
 }
 \seealso{

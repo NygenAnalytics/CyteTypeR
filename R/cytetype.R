@@ -13,7 +13,9 @@
 #'   cluster assignments. Default is "seurat_clusters".
 #' @param gene_symbols Character string specifying the gene symbol field name. Default is 'gene_symbols'.
 #' @param n_top_genes Integer specifying the maximum number of top marker genes
-#'   per cluster to include (filtered by avg_log2FC > 1). Default is 50.
+#'   per cluster to include after ordering by `avg_log2FC`. Filter
+#'   `marker_table` before calling this function when a fold-change threshold is
+#'   required. Default is 50.
 #' @param aggregate_metadata Logical indicating whether to aggregate metadata
 #'   across cells within each cluster. Default is `TRUE`.
 #' @param min_percentage Numeric threshold for minimum percentage.
@@ -26,7 +28,7 @@
 #' @param coordinates_key Character string specifying which dimensional reduction
 #'   to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".
 #' @param max_cells_per_group Integer specifying maximum cells per cluster for
-#'   subsampling (currently unused). Default is 1000.
+#'   visualization subsampling. Default is 1000.
 #' @param vars_h5_path Character string specifying the local file path for the
 #'   generated vars.h5 artifact (feature expression). Default is `"vars.h5"`.
 #' @param obs_duckdb_path Character string specifying the local file path for the
@@ -217,9 +219,16 @@ PrepareCyteTypeR <- function(obj,
 #' @param results_prefix Character. Prefix for keys added to `obj@meta.data` and `obj@misc` storing results; the annotation column is `obj@meta.data[[paste(results_prefix, group_key, sep = "_")]]`. Default is `"cytetype"`.
 #' @param poll_interval_seconds Integer. How often (seconds) to poll the API for results. Default from options (10).
 #' @param timeout_seconds Integer. Maximum time (seconds) to wait for results before erroring. Default from options (7200).
-#' @param api_url Optional character. CyteType API base URL. If `NULL`, uses the option/default URL. Default is `NULL`.
-#' @param auth_token Optional character. Bearer token for API auth. If `NULL`, uses none. Default is `NULL`.
-#' @param save_query Logical. Whether to save the request payload to a JSON file. Default is `TRUE`.
+#' @param api_url Optional character. CyteType API server origin. If `NULL`,
+#'   uses `CYTETYPE_API_URL`, the configured R option, or
+#'   `https://cytetype.nygen.io`.
+#' @param auth_token Optional character. Bearer token for API authentication.
+#'   If `NULL`, uses credentials saved by [SetupCyteTypeR()] or
+#'   [LoginCyteTypeR()].
+#' @param save_query Logical. Whether to save the request payload to a JSON
+#'   file. Default is `TRUE`. Set this to `FALSE` when `llm_configs` contains
+#'   provider credentials because the saved payload includes the complete LLM
+#'   configuration.
 #' @param query_filename Character. Filename for the saved query when `save_query` is `TRUE`. Default is `"query.json"`.
 #' @param upload_timeout_seconds Integer. Socket read timeout (seconds) for each artifact upload. Default is 3600.
 #' @param upload_max_workers Integer. Maximum number of parallel upload workers. Default is 6.
@@ -232,13 +241,13 @@ PrepareCyteTypeR <- function(obj,
 #' @details
 #' The function performs the following workflow:
 #' 1. Constructs the analysis query from prepared data
-#' 2. Saves query and job details to local JSON files
-#' 3. Submits job to CyteType API
+#' 2. Optionally saves the query to a JSON file
+#' 3. Submits the job and records its details in the returned object
 #' 4. Polls for job completion with progress updates
-#' 5. Retrieves results and integrates annotations into Seurat object
+#' 5. Retrieves results and integrates annotations into the Seurat object
 #'
-#' Job details are automatically saved to `job_details_{job_id}.json` for
-#' later reference or manual result retrieval.
+#' Job details are stored in the returned Seurat object's `misc` slot for later
+#' retrieval with [GetResults()].
 #'
 #' @examples
 #' \dontrun{
@@ -285,7 +294,7 @@ CyteTypeR <- function(obj,
                       show_progress = TRUE,
                       override_existing_results = FALSE
  ){
-  api_url <- api_url %||% .get_default_api_url()
+  api_url <- .resolve_api_url(api_url)
   poll_interval_seconds <- poll_interval_seconds %||% .get_default_poll_interval()
   timeout_seconds <- timeout_seconds %||% .get_default_timeout()
   if (upload_timeout_seconds <= 0) {
@@ -318,6 +327,7 @@ CyteTypeR <- function(obj,
   coordinates_key <- prepped_data$coordinates_key %||% "umap"
 
   .validate_input_data(prepped_data)
+  auth_token <- .resolve_auth_token(api_url, auth_token)
 
   if (!is.null(llm_configs) && length(llm_configs) > 0L) {
     if (is.null(names(llm_configs)) && is.list(llm_configs[[1]])) {
@@ -427,31 +437,69 @@ CyteTypeR <- function(obj,
 #' Retrieve CyteType Analysis Results
 #'
 #' @description
-#' If \code{obj} and \code{results_prefix} are given, tries to load from \code{obj@misc} first;
-#' if not found but job details exist, fetches from the API and stores in \code{obj}.
+#' If \code{obj} and \code{results_prefix} are given, tries to load from
+#' \code{obj@misc} first. If no local result exists but job details are
+#' available, fetches the result from the API.
 #' If only \code{job_id} is given, fetches from the API and returns (saves JSON).
 #'
 #' @param obj Seurat object that may contain stored results (optional).
 #' @param job_id Job ID from submission (optional if \code{obj} + \code{results_prefix} have stored job details).
 #' @param results_prefix Prefix used when storing results. Default \code{"cytetype"}.
-#' @param auth_token Optional bearer token for API fetch.
+#' @param auth_token Optional bearer token for API fetch. If `NULL`, uses
+#'   saved CyteType credentials. When retrieving a job stored in `obj`, an
+#'   explicit token also requires a matching `api_url`.
+#' @param api_url Optional CyteType server origin for standalone or legacy job
+#'   retrieval. When `NULL`, uses `CYTETYPE_API_URL` or
+#'   `https://cytetype.nygen.io`.
 #' @return Result list (annotations, summary, etc.), or transformed results when fetching by \code{job_id} only.
 #' @seealso [CyteTypeR()] for job submission
 #' @importFrom jsonlite write_json
 #' @export
-GetResults <- function(obj = NULL, job_id = NULL, results_prefix = "cytetype", auth_token = NULL) {
+GetResults <- function(obj = NULL,
+                       job_id = NULL,
+                       results_prefix = "cytetype",
+                       auth_token = NULL,
+                       api_url = NULL) {
   if (!is.null(obj) && !is.null(results_prefix)) {
     results_key <- paste0(results_prefix, "_results")
     job_details_key <- paste0(results_prefix, "_jobDetails")
     if (!is.null(obj@misc) && !is.null(obj@misc[[results_key]])) {
-      return(obj@misc[[results_key]]$result)
+      stored_results <- obj@misc[[results_key]]
+      if (
+        is.list(stored_results) &&
+          !is.data.frame(stored_results) &&
+          all(c("job_id", "result") %in% names(stored_results))
+      ) {
+        return(stored_results$result)
+      }
+      return(stored_results)
     }
     if (!is.null(obj@misc) && !is.null(obj@misc[[job_details_key]])) {
       details <- obj@misc[[job_details_key]]
       job_id <- details$job_id
-      api_url <- details$api_url
-      token <- auth_token %||% details$auth_token
-      status_resp <- .make_results_request(job_id, api_url, token)
+      job_api_url <- .resolve_api_url(details$api_url %||% api_url)
+      if (!is.null(auth_token)) {
+        if (is.null(api_url)) {
+          .stop_authentication(
+            paste(
+              "api_url is required when auth_token is supplied",
+              "for a job stored in a Seurat object"
+            )
+          )
+        }
+        explicit_api_url <- .validate_api_url(api_url)
+        if (!identical(explicit_api_url, job_api_url)) {
+          .stop_authentication(
+            paste(
+              "api_url must match the API origin stored with the job",
+              "before auth_token can be used"
+            ),
+            "API_ORIGIN_MISMATCH"
+          )
+        }
+      }
+      token <- .resolve_auth_token(job_api_url, auth_token)
+      status_resp <- .make_results_request(job_id, job_api_url, token)
       if (status_resp$status == "completed" && !is.null(status_resp$result)) {
         result <- .normalize_result_annotations(status_resp$result)
         if (!is.null(details$group_key) && !is.null(details$cluster_labels))
@@ -460,7 +508,15 @@ GetResults <- function(obj = NULL, job_id = NULL, results_prefix = "cytetype", a
         obj@misc[[results_key]] <- list(job_id = job_id, result = result)
         return(result)
       }
-      if (status_resp$status == "failed") stop("Job ", job_id, " failed.")
+      if (status_resp$status == "failed") {
+        stop(status_resp$message %||% paste("Job", job_id, "failed."), call. = FALSE)
+      }
+      if (status_resp$status == "error") {
+        stop(
+          status_resp$message %||% paste("Could not retrieve job", job_id),
+          call. = FALSE
+        )
+      }
       return(NULL)
     }
   }
@@ -468,7 +524,8 @@ GetResults <- function(obj = NULL, job_id = NULL, results_prefix = "cytetype", a
     if (is.null(obj)) stop("Provide either obj (with stored job details) or job_id.")
     stop("No stored results or job details for prefix '", results_prefix, "'.")
   }
-  api_url <- .get_default_api_url()
+  api_url <- .resolve_api_url(api_url)
+  auth_token <- .resolve_auth_token(api_url, auth_token)
   response <- .api_response_helper(job_id, api_url, "results", auth_token)
   write_json(response$data,
              path = paste0("cytetypeR_results_", job_id, ".json"),
