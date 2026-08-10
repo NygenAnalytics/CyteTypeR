@@ -162,11 +162,11 @@ test_that("CLI installer targets the active R environment bin", {
   destination <- tempfile("cytetyper-bin-")
   dir.create(destination)
   on.exit(unlink(destination, recursive = TRUE, force = TRUE), add = TRUE)
+  launcher_name <- CyteTypeR:::.cytetyper_launcher_name()
   testthat::local_mocked_bindings(
     .cytetyper_rscript_path = function() {
       file.path(destination, "Rscript")
     },
-    .cytetyper_os_type = function() "unix",
     .package = "CyteTypeR"
   )
 
@@ -175,11 +175,22 @@ test_that("CLI installer targets the active R environment bin", {
     type = "message"
   )
 
-  expect_identical(path, file.path(destination, "cytetyper"))
+  expect_identical(
+    normalizePath(path, winslash = "/", mustWork = TRUE),
+    normalizePath(
+      file.path(destination, launcher_name),
+      winslash = "/",
+      mustWork = TRUE
+    )
+  )
   expect_true(file.exists(path))
-  expect_identical(readLines(path, n = 1L), "#!/bin/sh")
   expect_true(any(grepl(path, messages, fixed = TRUE)))
-  expect_identical(unname(file.access(path, mode = 1L)), 0L)
+  if (identical(CyteTypeR:::.cytetyper_os_type(), "windows")) {
+    expect_identical(readLines(path, n = 1L), "@echo off")
+  } else {
+    expect_identical(readLines(path, n = 1L), "#!/bin/sh")
+    expect_identical(unname(file.access(path, mode = 1L)), 0L)
+  }
   expect_error(InstallCyteTypeRCli(), "already exists")
   expect_identical(
     suppressMessages(InstallCyteTypeRCli(overwrite = TRUE)),

@@ -16,7 +16,7 @@ test_that(".resolve_seurat_assay_rna warns when DefaultAssay is not RNA but RNA 
     dims = c(2L, 2L), dimnames = list(c("g1", "g2"), c("c1", "c2"))
   )
   obj <- suppressWarnings(Seurat::CreateSeuratObject(counts = counts, assay = "RNA"))
-  obj[["SCT"]] <- obj[["RNA"]]
+  suppressWarnings(obj[["SCT"]] <- obj[["RNA"]])
   Seurat::DefaultAssay(obj) <- "SCT"
 
   expect_warning(
