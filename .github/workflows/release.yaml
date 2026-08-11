@@ -1,0 +1,26 @@
+name: Validate R version tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag against DESCRIPTION
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          package_version="$(awk -F ': *' '$1 == "Version" {print $2}' DESCRIPTION)"
+          if [ "$RELEASE_TAG" != "v$package_version" ]; then
+            echo "::error::Release tag $RELEASE_TAG does not match DESCRIPTION version $package_version"
+            exit 1
+          fi

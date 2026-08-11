@@ -37,7 +37,7 @@
       if (package_version(latest) > package_version(current)) {
         packageStartupMessage(
           "A newer version of CyteTypeR is available (", current, " -> ", latest, "). ",
-          "Run remotes::install_github('NygenAnalytics/CyteTypeR') to update."
+          "Run devtools::install_github('NygenAnalytics/CyteTypeR') to update."
         )
       }
     }, error = function(e) NULL)
