@@ -16,6 +16,8 @@
 For AnnData workflows, use [CyteType](https://github.com/NygenAnalytics/CyteType).
 
 > [!IMPORTANT]
+> Already installed CyteTypeR? Open R and run `devtools::install_github("NygenAnalytics/CyteTypeR", force = TRUE)` to update to the latest version before you start.
+>
 > CyteType requires an API key. API use is free for academic and non-commercial research. Commercial API use requires a [license](#license).
 
 ## Why CyteTypeR?
