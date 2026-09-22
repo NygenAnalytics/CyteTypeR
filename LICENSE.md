@@ -3,6 +3,7 @@
 ## CyteTypeR (this repository)
 
 Copyright (c) 2025 Nygen Analytics AB
+Copyright (c) 2026 CyteTypeR authors
 
 The code and documentation in this repository are licensed under the
 Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International

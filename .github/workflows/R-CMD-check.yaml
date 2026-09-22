@@ -54,6 +54,25 @@ jobs:
           extra-packages: any::rcmdcheck, cran/ggrepel@0.9.6
           needs: check
 
+      - name: Rebuild Rtsne without OpenMP on macOS
+        if: runner.os == 'macOS'
+        shell: Rscript {0}
+        run: |
+          # The macOS Rtsne binary can fail to load with an unresolved
+          # ___kmpc_dispatch_init_4u symbol. Use a serial source build in CI.
+          # These compiler settings apply only to this Rscript process.
+          makevars <- tempfile("Rtsne-Makevars-")
+          writeLines(c("SHLIB_OPENMP_CFLAGS =", "SHLIB_OPENMP_CXXFLAGS ="), makevars)
+          Sys.setenv(R_MAKEVARS_USER = makevars)
+          install.packages("Rtsne", type = "source", dependencies = FALSE)
+
+      - name: Verify macOS dependencies load
+        if: runner.os == 'macOS'
+        shell: Rscript {0}
+        run: |
+          library(Rtsne)
+          library(Seurat)
+
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true
