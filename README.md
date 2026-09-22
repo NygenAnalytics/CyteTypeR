@@ -7,7 +7,7 @@
   </a>
   <img src="https://img.shields.io/badge/R-%E2%89%A5%204.1.0-blue.svg" alt="R Version">
   <a href="LICENSE.md">
-    <img src="https://img.shields.io/badge/License-MIT-lightgrey.svg" alt="License: MIT">
+    <img src="https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg" alt="License: CC BY-NC-SA 4.0">
   </a>
 </p>
 
@@ -146,6 +146,7 @@ Methods and full results are in the [preprint](https://www.biorxiv.org/content/1
 
 ## License
 
-CyteTypeR package code is available under the [MIT License](LICENSE.md).
+CyteTypeR code and documentation are available under [CC BY-NC-SA 4.0](LICENSE.md).
+For commercial licensing, contact [contact@nygen.io](mailto:contact@nygen.io).
 
 CyteType API access is free for academic and non-commercial research. Commercial API use and higher-rate access require a separate license from Nygen Analytics AB. Contact [contact@nygen.io](mailto:contact@nygen.io).
