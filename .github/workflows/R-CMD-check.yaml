@@ -40,11 +40,15 @@ jobs:
         with:
           r-version: ${{ matrix.config.r }}
           http-user-agent: ${{ matrix.config.http-user-agent }}
-          use-public-rspm: true
+          # Use CRAN's macOS binaries with CRAN R's bundled OpenMP runtime.
+          # Keep Posit Package Manager enabled on Linux and Windows.
+          use-public-rspm: ${{ runner.os != 'macOS' }}
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         if: matrix.config.r == 'release'
         with:
+          # Do not restore macOS binaries from the previous repository setup.
+          cache-version: ${{ runner.os == 'macOS' && '2' || '1' }}
           extra-packages: any::rcmdcheck
           needs: check
 
@@ -54,23 +58,15 @@ jobs:
           extra-packages: any::rcmdcheck, cran/ggrepel@0.9.6
           needs: check
 
-      - name: Rebuild Rtsne without OpenMP on macOS
-        if: runner.os == 'macOS'
-        shell: Rscript {0}
-        run: |
-          # The macOS Rtsne binary can fail to load with an unresolved
-          # ___kmpc_dispatch_init_4u symbol. Use a serial source build in CI.
-          # These compiler settings apply only to this Rscript process.
-          makevars <- tempfile("Rtsne-Makevars-")
-          writeLines(c("SHLIB_OPENMP_CFLAGS =", "SHLIB_OPENMP_CXXFLAGS ="), makevars)
-          Sys.setenv(R_MAKEVARS_USER = makevars)
-          install.packages("Rtsne", type = "source", dependencies = FALSE)
-
       - name: Verify macOS dependencies load
         if: runner.os == 'macOS'
         shell: Rscript {0}
         run: |
+          print(R.version)
+          print(getOption("repos"))
           library(Rtsne)
+          library(dotCall64)
+          library(SeuratObject)
           library(Seurat)
 
       - uses: r-lib/actions/check-r-package@v2
