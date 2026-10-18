@@ -247,8 +247,16 @@
 # Multi-step job results request (status check + results fetch)
 .make_results_request <- function(job_id, api_url, auth_token = NULL) {
 
-  make_response <- function(status, result = NULL, message, raw = NULL) {
-    list(status = status, result = result, message = message, raw_response = raw)
+  make_response <- function(status, result = NULL, message, raw = NULL, error_type = NULL,
+                            condition = NULL) {
+    list(
+      status = status,
+      result = result,
+      message = message,
+      raw_response = raw,
+      error_type = error_type,
+      condition = condition
+    )
   }
 
   tryCatch({
@@ -268,15 +276,19 @@
           if (inherits(e, "cytetype_auth_error")) {
             stop(e)
           }
+          condition <- .as_fetch_error(e, "Error while fetching job results")
           make_response(
-            "failed",
-            message = paste("Job completed but results unavailable:", e$message),
-            raw = status_data
+            # Transient errors are retried while waiting; others end the wait.
+            if (.is_transient_error(condition)) "error" else "failed",
+            message = conditionMessage(condition),
+            raw = status_data,
+            error_type = condition$call,
+            condition = condition
           )
         }
       )
 
-      if (!is.null(results_resp$status) && results_resp$status == "failed") {
+      if (!is.null(results_resp[["status"]])) {
         return(results_resp)
       }
 
@@ -284,6 +296,15 @@
         return(make_response(
           "failed",
           message = "Job completed but results are unavailable",
+          raw = status_data
+        ))
+      }
+
+      # HTTP 202 (JOB_PROCESSING): the results are not ready yet.
+      if (results_resp$status_code == 202) {
+        return(make_response(
+          "processing",
+          message = "Job is processing",
           raw = status_data
         ))
       }
@@ -322,11 +343,66 @@
     if (inherits(e, "cytetype_auth_error")) {
       stop(e)
     }
+    condition <- .as_fetch_error(e, "Error while checking job status")
     return(make_response(
       "error",
-      message = paste("Error checking job status:", e$message)
+      message = conditionMessage(condition),
+      error_type = condition$call,
+      condition = condition
     ))
   })
+}
+
+# A failed status or results request as a cytetype_api_error. Errors from
+# .api_response_helper() already are one and keep their message.
+.as_fetch_error <- function(e, context) {
+  if (inherits(e, "cytetype_api_error")) {
+    return(e)
+  }
+  cytetype_api_error(
+    message = paste0(context, ": ", conditionMessage(e)),
+    call = .error_type(e)
+  )
+}
+
+# Errors worth retrying: no response (network), the rate limit, and server and
+# gateway errors (HTTP 500, 502, 503 and 504). Others, such as HTTP 410
+# (REPORT_DELETED) or 404, are permanent; authentication errors (HTTP 401 and
+# 403) are signalled before this is asked.
+.is_transient_error <- function(condition) {
+  identical(condition$call, "network") ||
+    identical(condition$error_code, "RATE_LIMIT_EXCEEDED") ||
+    isTRUE(condition$status_code %in% .CHUNK_UPLOAD_TRANSIENT_STATUSES)
+}
+
+# "network" when no response was received, "api" for other request errors.
+.error_type <- function(e) {
+  if (inherits(e, "cytetype_api_error") && .is_string(e$call)) {
+    return(e$call)
+  }
+  if (inherits(e, "httr2_failure")) {
+    return("network")
+  }
+  "api"
+}
+
+# Seams for tests: the clock and the waits.
+.now <- function() Sys.time()
+.sleep <- function(seconds) Sys.sleep(seconds)
+
+.new_timeout_error <- function(job_id, timeout) {
+  structure(
+    list(
+      message = paste0(
+        "Job ", job_id, " did not finish within ", timeout,
+        " seconds (timeout_seconds). The job keeps running on the server; ",
+        "retrieve its results later with ", .results_hint(job_id), "."
+      ),
+      call = NULL,
+      job_id = job_id
+    ),
+    class = c("cytetype_timeout_error", "error", "condition")
+  )
 }
 
 # Polling for results
@@ -337,10 +413,15 @@
   poll_interval <- poll_interval %||% .get_default_poll_interval()
   timeout <- timeout %||% .get_default_timeout()
 
+  # The timeout includes the initial wait.
+  start_time <- .now()
+  # difftime() picks its units automatically; always compare seconds.
+  elapsed <- function() as.numeric(difftime(.now(), start_time, units = "secs"))
+  # A wait never runs past the deadline.
+  capped <- function(seconds) max(0, min(seconds, timeout - elapsed()))
 
-  # Initialize
   log_info("CyteType job (id: {job_id}) submitted. Polling for results...")
-  Sys.sleep(5)
+  .sleep(capped(5))
 
   report_url <- .url_path(api_url, "report", job_id)
 
@@ -353,24 +434,26 @@
     cli::cli_text("{.url {report_url}}")
   }
 
-  log_info("If disconnected, retrieve results with: GetResults()")
+  log_info("If disconnected, retrieve results with: {.results_hint(job_id)}")
 
   # Initialize tracking
 
-  start_time <- Sys.time()
   last_cluster_status <- list()
   spinner_frame = 0
   consecutive_not_found <- 0
   consecutive_errors <- 0
+  consecutive_network_errors <- 0
   max_consecutive_errors <- 5
 
   # Main polling loop
   repeat {
-    elapsed <- as.numeric(Sys.time() - start_time)
-
-    if (elapsed > timeout) {
+    # The deadline is checked only before each request. A request that starts
+    # in time and finds the job completed returns its results even if it ends
+    # slightly after the deadline: a finished result is better than a timeout.
+    if (elapsed() >= timeout) {
       cat("\n")
-      stop("timeout", "Timeout while fetching results")
+      log_info("Report: {report_url}")
+      stop(.new_timeout_error(job_id, timeout))
     }
 
     tryCatch({
@@ -379,7 +462,10 @@
 
       # Reset counters on valid server response
       if (status != "not_found") consecutive_not_found <- 0
-      if (status != "error") consecutive_errors <- 0
+      if (status != "error") {
+        consecutive_errors <- 0
+        consecutive_network_errors <- 0
+      }
 
       # Extract cluster status
       current_cluster_status <- status_response$raw_response$clusterStatus %||% list()
@@ -420,6 +506,10 @@
                  )
                  last_cluster_status <- current_cluster_status
                }
+               # The results of a completed job could not be fetched.
+               if (inherits(status_response$condition, "cytetype_api_error")) {
+                 stop(status_response$condition)
+               }
                error_msg <- status_response$message %||% "Unknown server error"
                stop(paste("Server error:", error_msg))
              },
@@ -427,9 +517,9 @@
              "pending" = {
                log_debug("Job {job_id} status: {status}. Waiting {poll_interval}s...")
                if (show_progress && length(current_cluster_status) > 0){
-                 .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
+                 .sleep_with_spinner(capped(poll_interval), current_cluster_status, show_progress)
                } else {
-                 Sys.sleep(poll_interval)
+                 .sleep(capped(poll_interval))
                }
                last_cluster_status <- current_cluster_status
              },
@@ -443,19 +533,40 @@
                  stop(paste0("Job '", job_id, "' not found after ", consecutive_not_found,
                              " attempts. Verify the job_id is correct."))
                }
-               .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
+               .sleep_with_spinner(capped(poll_interval), current_cluster_status, show_progress)
                last_cluster_status <- current_cluster_status
              },
 
              "error" = {
-               consecutive_errors <- consecutive_errors + 1
                error_msg <- status_response$message %||% "Unknown error"
-               log_warn("Error checking job {job_id} ({consecutive_errors}/{max_consecutive_errors}): {error_msg}")
-               if (consecutive_errors >= max_consecutive_errors) {
-                 cat("\n")
-                 stop(paste("Stopping after", max_consecutive_errors, "consecutive errors:", error_msg))
+               if (identical(status_response$error_type, "network")) {
+                 # As in the Python client, network errors are retried until
+                 # timeout_seconds is reached.
+                 consecutive_network_errors <- consecutive_network_errors + 1
+                 if (consecutive_network_errors == 1) {
+                   log_warn("Could not reach CyteType to check job {job_id}: {error_msg}. Retrying until timeout_seconds ({timeout}s) is reached...")
+                 } else {
+                   log_debug("Network error for {job_id} (attempt {consecutive_network_errors}): {error_msg}. Retrying...")
+                 }
+                 .sleep_with_spinner(capped(min(poll_interval, 5)), current_cluster_status, show_progress)
+               } else {
+                 consecutive_errors <- consecutive_errors + 1
+                 log_warn("{error_msg} (attempt {consecutive_errors}/{max_consecutive_errors} for job {job_id})")
+                 if (consecutive_errors >= max_consecutive_errors) {
+                   cat("\n")
+                   stop(cytetype_api_error(
+                     message = paste0(
+                       "Stopping after ", max_consecutive_errors, " consecutive errors: ", error_msg,
+                       "\nThe job may still be running; retrieve its results later with ",
+                       .results_hint(job_id), "."
+                     ),
+                     call = status_response$error_type %||% "api",
+                     error_code = status_response$condition$error_code,
+                     status_code = status_response$condition$status_code
+                   ))
+                 }
+                 .sleep_with_spinner(capped(poll_interval), current_cluster_status, show_progress)
                }
-               .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
              },
 
              {
@@ -480,7 +591,7 @@
         if (grepl("Network error", error_msg)) {
           log_debug("Network error for {job_id}: {error_msg}. Retrying...")
           retry_interval <- min(poll_interval, 5)
-          .sleep_with_spinner(retry_interval,current_cluster_status,show_progress)
+          .sleep_with_spinner(capped(retry_interval),current_cluster_status,show_progress)
         } else {
           cat("\n")
           stop(e)
@@ -493,10 +604,12 @@
   }
 }
 
-# Helper for sleeping with spinner animation
+# Helper for sleeping with spinner animation. The spinner moves every half
+# second; the last step is shorter when the wait was cut to the time left
+# before the deadline, so the whole `duration` is slept.
 .sleep_with_spinner <- function(duration,cluster_status,show_progress = TRUE) {
-  for (i in seq_len(duration * 2)) {
-    Sys.sleep(0.5)
+  for (i in seq_len(ceiling(duration * 2))) {
+    .sleep(min(0.5, duration - (i - 1) / 2))
     if (show_progress){
       .display_cluster_status_cli(cluster_status, is_final=FALSE, spinner_frame=i)
     }

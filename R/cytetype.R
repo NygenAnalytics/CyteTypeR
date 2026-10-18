@@ -3,15 +3,24 @@
 #' @description
 #' Prepares a Seurat object and a gene marker table for CyteType API by extracting and formatting
 #' cluster labels, metadata, marker genes, visualization coordinates, and
-#' expression data into the required data structure.
+#' expression data into the required data structure. It also writes the two
+#' files that [CyteTypeR()] uploads with the job: `vars.h5` (expression) and
+#' `obs.duckdb` (cell metadata and coordinates).
 #'
-#' @param obj A Seurat object with normalized data and clustering results.
-#' @param marker_table Data frame containing marker genes with columns:
-#'   'cluster', 'gene', and 'avg_log2FC'. Output from Seurat's
-#'   `FindAllMarkers()` function.
+#' @param obj A Seurat object with normalized data and clustering results. It
+#'   needs an assay named `"RNA"` with a normalized `data` layer.
+#' @param marker_table Data frame containing marker genes with the columns
+#'   `cluster`, `gene` and `avg_log2FC`, such as the output of Seurat's
+#'   `FindAllMarkers()`. Its clusters must be exactly the clusters in
+#'   `group_key`, each with at least five marker genes.
 #' @param group_key Character string specifying the metadata column containing
-#'   cluster assignments. Default is "seurat_clusters".
-#' @param gene_symbols Character string specifying the gene symbol field name. Default is 'gene_symbols'.
+#'   cluster assignments. Every cell needs a cluster: `NA` values stop the
+#'   preparation with an error. Default is `"seurat_clusters"`.
+#' @param gene_symbols Character string naming the column of the RNA assay's
+#'   feature metadata that holds gene symbols. It is used only to check that
+#'   the genes are symbols rather than database identifiers; when the column
+#'   does not exist, the row names of the RNA assay are checked instead.
+#'   Default is `"gene_symbols"`.
 #' @param n_top_genes Integer specifying the maximum number of top marker genes
 #'   per cluster to include after ordering by `avg_log2FC`. Filter
 #'   `marker_table` before calling this function when a fold-change threshold is
@@ -25,8 +34,12 @@
 #'   exceeding this limit are silently skipped. Default is 500.
 #' @param pcent_batch_size Integer specifying batch size for expression percentage
 #'   calculations. Default is 5000.
-#' @param coordinates_key Character string specifying which dimensional reduction
-#'   to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".
+#' @param coordinates_key Character string naming the dimensional reduction used
+#'   for the report's visualization, such as `"umap"` or `"tsne"`. This
+#'   reduction is tried first, then `"umap"`, `"tsne"` and `"pca"`, matched
+#'   case-insensitively; the first one with a row for every cell and at least
+#'   two dimensions is used. When none qualifies, the job runs without
+#'   visualization. Default is `"umap"`.
 #' @param max_cells_per_group Integer specifying maximum cells per cluster for
 #'   visualization subsampling. Default is 1000.
 #' @param vars_h5_path Character string specifying the local file path for the
@@ -34,32 +47,47 @@
 #' @param obs_duckdb_path Character string specifying the local file path for the
 #'   generated obs.duckdb artifact (cell metadata). Default is `"obs.duckdb"`.
 #'
-#' @return Named list containing formatted data for CyteType analysis:
+#' @return A named list to pass to [CyteTypeR()]:
 #'   \itemize{
-#'     \item `clusterLabels`: List mapping numeric cluster IDs to original labels
+#'     \item `clusterLabels`: List mapping the CyteType cluster IDs (`"1"`,
+#'       `"2"`, ...) to your cluster labels
 #'     \item `clusterMetadata`: Aggregated metadata by cluster (if enabled)
 #'     \item `markerGenes`: List of top marker genes per cluster
-#'     \item `visualizationData`: Coordinates and cluster assignments for plotting
+#'     \item `visualizationData`: Sampled coordinates and cluster assignments
+#'       for plotting, or `NULL` when no coordinates were found
 #'     \item `expressionData`: Expression percentages by cluster
 #'     \item `group_key`: The metadata column name used for cluster assignments
 #'     \item `build_succeeded`: Logical indicating whether artifact files were built successfully
 #'     \item `vars_h5_path`: Path to the generated vars.h5 file
 #'     \item `obs_duckdb_path`: Path to the generated obs.duckdb file
+#'     \item `coordinates_key`: The name of the reduction whose coordinates
+#'       were used for the visualization, or `NULL` when none was used
 #'   }
 #'
 #' @details
 #' The function performs the following steps:
-#' 1. Validates the Seurat object structure
+#' 1. Validates the Seurat object structure and the cluster labels
 #' 2. Creates a mapping from original cluster labels to sequential numeric IDs
 #' 3. Aggregates metadata across cells within clusters (optional)
 #' 4. Filters and selects top marker genes per cluster
 #' 5. Extracts dimensional reduction coordinates for visualization
 #' 6. Calculates expression percentages across clusters
-#' 7. Builds a vars.h5 artifact from the normalized expression matrix
+#' 7. Builds a vars.h5 artifact from the normalized expression matrix, with
+#'    the raw counts when they are whole numbers
 #' 8. Builds an obs.duckdb artifact from the cell metadata
 #'
-#' Clusters are renumbered sequentially (1, 2, 3, ...) to ensure consistent
-#' formatting regardless of original cluster naming.
+#' Clusters are renumbered sequentially (1, 2, 3, ...) in the sorted order of
+#' your labels (level order for a factor) to ensure consistent formatting
+#' regardless of original cluster naming.
+#'
+#' Expression always comes from the `"RNA"` assay, whatever the default assay
+#' is, and Seurat v5 layers split by sample are joined on a copy (your object is
+#' not changed). The gene names come from the same assay. When the default
+#' assay is not `"RNA"`, a warning says that `"RNA"` is used.
+#'
+#' Errors while building the two files are logged and recorded as
+#' `build_succeeded = FALSE`; [CyteTypeR()] then stops unless
+#' `require_artifacts = FALSE`.
 #'
 #' @examples
 #' \dontrun{
@@ -73,11 +101,11 @@
 #' )
 #' }
 #'
+#' @seealso [CyteTypeR()] to submit the job, [CleanUpArtifacts()] to delete the
+#'   files afterwards.
 #' @importFrom logger log_info log_debug log_error log_warn
 #' @importFrom dplyr group_by filter slice_head ungroup arrange desc %>%
-#' @importFrom tidyr pivot_longer
 #' @importFrom stats setNames
-#' @importFrom Seurat Embeddings GetAssayData AddMetaData
 #' @importFrom jsonlite write_json fromJSON
 #' @export
 PrepareCyteTypeR <- function(obj,
@@ -95,9 +123,11 @@ PrepareCyteTypeR <- function(obj,
                              obs_duckdb_path = "obs.duckdb"
 ){
   .validate_seurat(obj, group_key, gene_symbols, coordinates_key)
+  # duckdb writes obs.duckdb; check it before the (slow) vars.h5 write.
+  .require_duckdb()
 
   sorted_clusters <- sort(unique(obj[[group_key, drop = TRUE]]))
-  cluster_map <- setNames(as.character(1:length(sorted_clusters)), sorted_clusters)
+  cluster_map <- setNames(as.character(seq_along(sorted_clusters)), as.character(sorted_clusters))
 
   .validate_marker_table(marker_table,sorted_clusters)
 
@@ -126,49 +156,54 @@ PrepareCyteTypeR <- function(obj,
 
   coords <- NULL
   visualization_data <- NULL
-  tryCatch({
-    coords <- Seurat::Embeddings(obj, reduction = coordinates_key)
-    log_info("Preparing visualization data...")
-    visualization_data <- .sample_visualization_data(obj, group_key, coordinates_key, cluster_map, max_cells_per_group)
-  }, error = function(e) {
-    log_warn(paste("Could not extract coordinates for reduction '", coordinates_key,
-                   "'. Continuing without visualization data. Error:", conditionMessage(e)))
-  })
+  # The reduction actually used; stays NULL when there is none.
+  used_coordinates_key <- NULL
+  found_coordinates_key <- .resolve_coordinates_key(obj, coordinates_key)
+  if (!is.null(found_coordinates_key)) {
+    visualization <- tryCatch({
+      log_info("Preparing visualization data...")
+      list(
+        coords = .reduction_coordinates(obj, found_coordinates_key),
+        data = .sample_visualization_data(obj, group_key, found_coordinates_key, cluster_map, max_cells_per_group)
+      )
+    }, error = function(e) {
+      log_warn(paste0("Could not extract coordinates for reduction '", found_coordinates_key,
+                      "'. Continuing without visualization data. Error: ", conditionMessage(e)))
+      NULL
+    })
+    if (!is.null(visualization)) {
+      coords <- visualization$coords
+      visualization_data <- visualization$data
+      used_coordinates_key <- found_coordinates_key
+    }
+  }
 
   log_info("Calculating expression percentages...")
-  expression_percentages <- .calculate_pcent(obj, group_key, cluster_map, pcent_batch_size)
+  expr <- .get_rna_layer(obj, "data")
+  if (is.null(expr)) {
+    stop("The RNA assay has no normalized 'data' layer. Run NormalizeData() first.", call. = FALSE)
+  }
+  expression_percentages <- .calculate_pcent(obj, group_key, cluster_map, pcent_batch_size, expr = expr)
 
   # Prep cluster_map to named list for each "group/cluster"
   cluster_map <- as.list(as.character(sorted_clusters))
-  names(cluster_map) <- as.character(1:length(sorted_clusters))
+  names(cluster_map) <- as.character(seq_along(sorted_clusters))
 
   # build artefacts for upload
   build_succeeded <- FALSE
 
   tryCatch({
     log_info("Building vars.h5 from normalized counts (cells x features)...")
-    default_assay <- .resolve_seurat_assay_rna(obj)
     # Seurat stores expression as features x cells; API expects cells x features (n_obs x n_vars).
-    expr_mat <- tryCatch(
-      Seurat::GetAssayData(obj, assay = default_assay, layer = "data"),
-      error = function(e) Seurat::GetAssayData(obj, assay = default_assay, slot = "data")
-    )
-    mat <- Matrix::t(expr_mat)
-
-    feature_df <- tryCatch(
-      as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.features),
-      error = function(e) tryCatch(
-        as.data.frame(Seurat::GetAssay(obj, default_assay)@meta.data),
-        error = function(e2) NULL
-      )
-    )
-    feature_names <- tryCatch(rownames(obj), error = function(e) NULL)
+    mat <- Matrix::t(expr)
+    feature_names <- rownames(expr)
+    feature_df <- .align_feature_metadata(.assay_feature_metadata(obj, "RNA"), feature_names)
     raw_mat <- tryCatch(
-      tryCatch(
-        Seurat::GetAssayData(obj, assay = default_assay, layer = "counts"),
-        error = function(e) Seurat::GetAssayData(obj, assay = default_assay, slot = "counts")
-      ),
-      error = function(e) NULL
+      .align_raw_counts(.get_rna_layer(obj, "counts"), feature_names),
+      error = function(e) {
+        log_warn("Could not read the RNA counts layer, skipping raw counts: {conditionMessage(e)}")
+        NULL
+      }
     )
     .save_vars_h5(vars_h5_path, mat, raw_mat = raw_mat, feature_df = feature_df, feature_names = feature_names)
     log_info("Built vars.h5 successfully.")
@@ -176,7 +211,7 @@ PrepareCyteTypeR <- function(obj,
     log_info("Building obs.duckdb (API) from cell metadata (Seurat obj@meta.data)...")
 
     .save_obs_duckdb(obs_duckdb_path, obj@meta.data,
-                     coordinates = coords, coordinates_key = coordinates_key)
+                     coordinates = coords, coordinates_key = used_coordinates_key)
     log_info("Built obs.duckdb successfully.")
 
     build_succeeded <- TRUE
@@ -194,15 +229,137 @@ PrepareCyteTypeR <- function(obj,
     build_succeeded = build_succeeded,
     vars_h5_path = vars_h5_path,
     obs_duckdb_path = obs_duckdb_path,
-    coordinates_key = coordinates_key
+    coordinates_key = used_coordinates_key
   )
-  # Store query
-  obj@misc$query <- prepped_data
 
   log_info("Preparation complete.")
   return(prepped_data)
 }
-#'
+
+# Feature metadata in the order of `features`, or NULL when it cannot be aligned.
+.align_feature_metadata <- function(feature_df, features) {
+  if (is.null(feature_df)) {
+    return(NULL)
+  }
+  if (identical(rownames(feature_df), features)) {
+    return(feature_df)
+  }
+  if (!is.null(rownames(feature_df)) && all(features %in% rownames(feature_df))) {
+    return(feature_df[features, , drop = FALSE])
+  }
+  log_warn("The RNA feature metadata does not match the genes of the data layer; writing vars.h5 without it.")
+  NULL
+}
+
+# Raw counts with the genes of the data layer in the same order, or NULL.
+.align_raw_counts <- function(raw_mat, features) {
+  if (is.null(raw_mat)) {
+    return(NULL)
+  }
+  if (identical(rownames(raw_mat), features)) {
+    return(raw_mat)
+  }
+  if (!is.null(rownames(raw_mat)) && all(features %in% rownames(raw_mat))) {
+    return(raw_mat[features, , drop = FALSE])
+  }
+  log_warn("The RNA counts layer does not contain the genes of the data layer; skipping raw counts in vars.h5.")
+  NULL
+}
+
+.has_namespace <- function(package) {
+  requireNamespace(package, quietly = TRUE)
+}
+
+.require_duckdb <- function() {
+  if (!.has_namespace("duckdb")) {
+    stop(
+      "Package 'duckdb' is required to build obs.duckdb. ",
+      "Install it with install.packages(\"duckdb\").",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
+.JOB_VISIBILITY <- c("private", "org", "public")
+
+.validate_visibility <- function(visibility) {
+  if (is.null(visibility)) {
+    return(invisible(NULL))
+  }
+  if (!.is_string(visibility) || !visibility %in% .JOB_VISIBILITY) {
+    stop(
+      "visibility must be \"private\", \"org\", \"public\" or NULL",
+      call. = FALSE
+    )
+  }
+  invisible(visibility)
+}
+
+# The server gives API keys of users without an organization license the
+# prefix "cyt_p_" (organization keys get "cyt_") and refuses "org" visibility
+# for them when the job is submitted, after the upload. The prefix only
+# suggests a personal key: an organization key's random part can begin with
+# "p_". So warn before uploading, and leave the decision to the server.
+.PERSONAL_API_KEY_PREFIX <- "cyt_p_"
+
+.warn_org_visibility_key <- function(visibility, auth_token) {
+  if (
+    identical(visibility, "org") &&
+      .is_string(auth_token) &&
+      startsWith(auth_token, .PERSONAL_API_KEY_PREFIX)
+  ) {
+    # Logged at once, before the upload starts (a warning() would only be
+    # shown when CyteTypeR() returns). Name the kind of key, never the key.
+    log_warn(paste0(
+      "visibility = \"org\" needs an organization API key, and this key looks ",
+      "like a personal key (cyt_p_...). If it is, the server rejects the job ",
+      "after the upload. Use an organization key, or choose \"private\" or ",
+      "\"public\"."
+    ))
+  }
+  invisible(NULL)
+}
+
+.results_hint <- function(job_id) {
+  paste0("GetResults(job_id = \"", job_id, "\")")
+}
+
+# Warn about clusters that have no result; their cells are marked "Unknown".
+.log_unannotated_clusters <- function(result, cluster_labels) {
+  annotated <- vapply(
+    .normalized_entries(result),
+    function(entry) .scalar_text(.json_get(entry, "clusterId"), ""),
+    character(1)
+  )
+  missing <- setdiff(names(cluster_labels), annotated)
+  if (length(missing) > 0L) {
+    labels <- .map_cluster_labels(missing, cluster_labels)
+    log_warn(paste0(
+      "No annotations received for clusters: ", paste(labels, collapse = ", "),
+      ". Their cells are marked as 'Unknown'."
+    ))
+  }
+  invisible(missing)
+}
+
+.log_result_locations <- function(results_prefix, group_key) {
+  column <- function(field) paste0("obj@meta.data$", results_prefix, "_", field, "_", group_key)
+  results_location <- if (identical(results_prefix, "cytetype")) {
+    "obj@misc$cytetype_results"
+  } else {
+    paste0("obj@misc$", results_prefix, "_results")
+  }
+  log_info(paste0(
+    "Annotation labels: ", column("annotation"), "\n",
+    "Cell Ontology terms: ", column("cellOntologyTerm"), "\n",
+    "Cell Ontology term IDs: ", column("cellOntologyTermID"), "\n",
+    "Cell states: ", column("cellState"), "\n",
+    "Reviewer confidence: ", column("reviewerConfidence"), "\n",
+    "Full results: ", results_location
+  ))
+}
+
 #' Submit CyteType Analysis Job
 #'
 #' @description
@@ -212,13 +369,25 @@ PrepareCyteTypeR <- function(obj,
 #'
 #' @param obj A Seurat object (will be returned with annotations added).
 #' @param prepped_data Named list containing prepared data from `PrepareCyteTypeR()`.
-#' @param study_context Optional character. Biological context for the experimental setup (e.g. organisms, tissues, diseases, developmental stages, single_cell methods, experimental conditions). Default is `NULL`.
-#' @param llm_configs Optional list of LLM configs. Each element must match the LLMModelConfig schema with required `provider` and `name`; either `apiKey` or all AWS credentials (`awsAccessKeyId`, `awsSecretAccessKey`, `awsDefaultRegion`) must be provided. Default is `NULL` (API default model).
+#' @param study_context Optional character. Biological context for the experimental setup (e.g. organisms, tissues, diseases, developmental stages, single-cell methods, experimental conditions). Default is `NULL`.
+#' @param llm_configs Optional list of LLM configs. Each element must match the LLMModelConfig schema with required `provider` and `name`; either `apiKey` or all AWS credentials (`awsAccessKeyId`, `awsSecretAccessKey`, `awsDefaultRegion`) must be provided. `provider` is one of `"anthropic"`, `"bedrock"`, `"deepseek"`, `"fireworks"`, `"google"`, `"groq"`, `"huggingface"`, `"mistral"`, `"nebius"`, `"openai"`, `"openrouter"`, `"together"`, `"vertex"` or `"xai"`. Default is `NULL` (API default model).
 #' @param metadata Optional named list. Custom metadata tags for the report header; URL-like values are made clickable in the report. Default is `NULL`.
 #' @param n_parallel_clusters Integer. Number of parallel requests to the model (max 50). High values can trigger rate limits. Default is 2.
-#' @param results_prefix Character. Prefix for keys added to `obj@meta.data` and `obj@misc` storing results; the annotation column is `obj@meta.data[[paste(results_prefix, group_key, sep = "_")]]`. Default is `"cytetype"`.
+#' @param results_prefix Character. Prefix for the results added to `obj`. The
+#'   factor columns `<prefix>_annotation_<group_key>`,
+#'   `<prefix>_cellOntologyTerm_<group_key>`,
+#'   `<prefix>_cellOntologyTermID_<group_key>`, `<prefix>_cellState_<group_key>`
+#'   and `<prefix>_reviewerConfidence_<group_key>` are added to `obj@meta.data`,
+#'   with three copies under older names: `<prefix>_<group_key>` (label),
+#'   `<prefix>_ontologyTerm_<group_key>` and `<prefix>_ontologyID_<group_key>`.
+#'   The job details are stored in `obj@misc[[paste0(prefix, "_jobDetails")]]`
+#'   and the results as described under Value. Default is `"cytetype"`.
 #' @param poll_interval_seconds Integer. How often (seconds) to poll the API for results. Default from options (10).
-#' @param timeout_seconds Integer. Maximum time (seconds) to wait for results before erroring. Default from options (7200).
+#' @param timeout_seconds Integer. Maximum time (seconds) to wait for results.
+#'   When it is reached, `CyteTypeR()` stops with an error of class
+#'   `cytetype_timeout_error` that names the job ID; the job keeps running on
+#'   the server and [GetResults()] retrieves its results later. Default from
+#'   options (7200).
 #' @param api_url Optional character. CyteType API server origin. If `NULL`,
 #'   uses `CYTETYPE_API_URL`, the configured R option, or
 #'   `https://cytetype.nygen.io`.
@@ -235,19 +404,63 @@ PrepareCyteTypeR <- function(obj,
 #' @param require_artifacts Logical. If `TRUE`, an error during artifact build or upload stops the run; if `FALSE`, failures are skipped and annotation continues without artifacts. Default is `TRUE`.
 #' @param show_progress Logical. Whether to show progress (spinner and cluster status). Set `FALSE` to disable. Default is `TRUE`.
 #' @param override_existing_results Logical. If `TRUE`, allow overwriting existing results with the same `results_prefix`. If `FALSE` and results exist, an error is raised. Default is `FALSE`.
+#' @param visibility Optional character. Who can view the report: `"private"`,
+#'   `"org"` (your organization; needs an organization API key) or `"public"`
+#'   (anyone with the link). Default is `NULL`, which uses the server default
+#'   (`"private"`). With `"org"` and an API key that looks like a personal key
+#'   (it starts with `cyt_p_`), a warning is logged before the files are
+#'   uploaded and the run continues; the server checks the key when the job is
+#'   submitted and rejects personal keys.
 #'
-#' @return The input Seurat object with added annotation metadata (and artifact uploads when artifacts are built and uploaded).
+#' @return The Seurat object `obj` with the results added. Assign it, for
+#'   example `obj <- CyteTypeR(obj, prepped_data)`; the object you pass in is
+#'   not changed.
+#'   \itemize{
+#'     \item `obj@meta.data` gains the factor columns listed under
+#'       `results_prefix`. Cells in clusters without a result get `"Unknown"`
+#'       (`""` for the cell state) in the first five columns and `NA` in the
+#'       three older ones. The reviewer confidence column holds `"High"`,
+#'       `"Moderate"`, `"Low"`, or `"Unknown"` when it is missing; its levels
+#'       follow that order, and only the levels that occur are kept.
+#'     \item `obj@misc[[paste0(prefix, "_jobDetails")]]` holds `job_id`,
+#'       `report_url`, `api_url`, `group_key`, `cluster_labels` and, when set,
+#'       `visibility`.
+#'     \item With the default prefix, `obj@misc$cytetype_results` is a
+#'       data.frame with one row per annotated cluster and the columns
+#'       `clusterId` (your cluster label), `annotation`, `ontologyTerm`,
+#'       `ontologyTermID`, `granularAnnotation`, `cellState`, `justification`,
+#'       `supportingMarkers`, `conflictingMarkers`, `missingExpression`,
+#'       `unexpectedExpression`, `reviewerConfidence`, `isHeterogeneous` and
+#'       `heterogeneityType`. Its attributes `"job_id"` and `"result"` hold the
+#'       job ID and the full results in the form returned by [GetResults()].
+#'     \item With another prefix, `obj@misc[[paste0(prefix, "_results")]]` is a
+#'       list with `job_id` and `result` (the full results), and
+#'       `obj@misc$cytetype_results` is left as it is.
+#'   }
 #'
 #' @details
 #' The function performs the following workflow:
 #' 1. Constructs the analysis query from prepared data
 #' 2. Optionally saves the query to a JSON file
-#' 3. Submits the job and records its details in the returned object
+#' 3. Uploads the artifact files and submits the job
 #' 4. Polls for job completion with progress updates
 #' 5. Retrieves results and integrates annotations into the Seurat object
 #'
-#' Job details are stored in the returned Seurat object's `misc` slot for later
-#' retrieval with [GetResults()].
+#' The evidence columns of the results table (`justification`,
+#' `supportingMarkers`, `conflictingMarkers`, `missingExpression` and
+#' `unexpectedExpression`) are filled from the structured output of current
+#' jobs when the stored fields are empty. `supportingMarkers` and
+#' `conflictingMarkers` list genes separated by `"; "`.
+#'
+#' While waiting, network errors are retried until `timeout_seconds` is
+#' reached. Other errors while checking the job stop the run after five in a
+#' row. When the results of a completed job cannot be fetched, the rate limit
+#' and server errors (HTTP 500, 502, 503 and 504) are retried in the same way,
+#' and other errors, such as a deleted report (HTTP 410), stop the run at once.
+#' These errors signal a [cytetype_api_error()] condition. If the run stops or
+#' is interrupted, the job keeps running on the server: retrieve its results
+#' with `GetResults(job_id = "<job_id>")`, using the job ID printed when the job
+#' was submitted.
 #'
 #' @examples
 #' \dontrun{
@@ -268,7 +481,8 @@ PrepareCyteTypeR <- function(obj,
 #'     "GEO_Accession" = "GSE123456"
 #'   ),
 #'   timeout_seconds = 1800,
-#'   poll_interval_seconds = 60
+#'   poll_interval_seconds = 60,
+#'   visibility = "public"
 #' )
 #' }
 #'
@@ -292,7 +506,8 @@ CyteTypeR <- function(obj,
                       upload_max_workers = 6L,
                       require_artifacts = TRUE,
                       show_progress = TRUE,
-                      override_existing_results = FALSE
+                      override_existing_results = FALSE,
+                      visibility = NULL
  ){
   api_url <- .resolve_api_url(api_url)
   poll_interval_seconds <- poll_interval_seconds %||% .get_default_poll_interval()
@@ -315,6 +530,8 @@ CyteTypeR <- function(obj,
     )
   }
 
+  .validate_visibility(visibility)
+
   prepped_data$studyInfo <- study_context %||% ""
   prepped_data$infoTags <- metadata %||% list()
   prepped_data$nParallelClusters <- n_parallel_clusters
@@ -324,10 +541,10 @@ CyteTypeR <- function(obj,
   )
 
   group_key <- prepped_data$group_key
-  coordinates_key <- prepped_data$coordinates_key %||% "umap"
 
   .validate_input_data(prepped_data)
   auth_token <- .resolve_auth_token(api_url, auth_token)
+  .warn_org_visibility_key(visibility, auth_token)
 
   if (!is.null(llm_configs) && length(llm_configs) > 0L) {
     if (is.null(names(llm_configs)) && is.list(llm_configs[[1]])) {
@@ -345,6 +562,9 @@ CyteTypeR <- function(obj,
     input_data = prepped_data,
     llm_configs = llm_configs
   )
+  if (!is.null(visibility)) {
+    query_list$visibility <- visibility
+  }
 
   build_succeeded <- isTRUE(prepped_data$build_succeeded)
 
@@ -393,42 +613,46 @@ CyteTypeR <- function(obj,
 
   job_id <- .submit_job(query_for_json, api_url, auth_token)
 
-  if (is.na(job_id) || is.null(job_id)) {
+  if (is.null(job_id) || is.na(job_id)) {
     stop("Job submission failed: no job ID returned.", call. = FALSE)
   }
 
-  obj <- .store_job_details_seurat(obj, job_id, api_url, results_prefix, group_key, prepped_data$clusterLabels)
-
-  # poll for results
-  result <- .poll_for_results(
-    job_id,
-    api_url,
-    poll_interval_seconds,
-    timeout_seconds,
-    auth_token = auth_token,
-    show_progress = show_progress
+  obj <- .store_job_details_seurat(
+    obj, job_id, api_url, results_prefix, group_key, prepped_data$clusterLabels,
+    visibility = visibility
   )
+
+  # The object holding the job details is lost if the session is interrupted,
+  # so point to the job ID instead.
+  result <- withCallingHandlers(
+    .poll_for_results(
+      job_id,
+      api_url,
+      poll_interval_seconds,
+      timeout_seconds,
+      auth_token = auth_token,
+      show_progress = show_progress
+    ),
+    interrupt = function(cnd) {
+      cat("\n")
+      message(
+        "The CyteType job ", job_id, " keeps running on the server. ",
+        "Retrieve its results later with ", .results_hint(job_id), "."
+      )
+    }
+  )
+
   if (!is.null(result)){
-    result <- .normalize_result_annotations(result)
+    result <- .normalize_results(result)
+    results_table <- .transform_results_seurat(result, cluster_map = prepped_data$clusterLabels)
     obj <- .store_annotations_seurat(
       obj, result, job_id, results_prefix, group_key,
-      prepped_data$clusterLabels
+      prepped_data$clusterLabels,
+      results_table = results_table
     )
-    transformed_results <- .transform_results_seurat(result, cluster_map = prepped_data$clusterLabels)
-    obj@misc$cytetype_results <- transformed_results
-
-    ann_colname <- paste(results_prefix, group_key, sep = "_")
-    onto_colname <- paste(results_prefix, "ontologyTerm", group_key, sep = "_")
-    ontoID_colname <- paste(results_prefix, "ontologyID", group_key, sep = "_")
-    cluster_ann_map <- setNames(transformed_results$annotation, transformed_results$clusterId)
-    cluster_onto_map <- setNames(transformed_results$ontologyTerm, transformed_results$clusterId)
-    cluster_onto_id_map <- setNames(transformed_results$ontologyTermID, transformed_results$clusterId)
-    cells_group <- as.character(as.vector(obj@meta.data[[group_key]]))
-    obj@meta.data[[ann_colname]] <- factor(cluster_ann_map[cells_group])
-    obj@meta.data[[onto_colname]] <- factor(cluster_onto_map[cells_group])
-    obj@meta.data[[ontoID_colname]] <- factor(cluster_onto_id_map[cells_group])
-
-    return(obj)
+    obj <- .add_legacy_annotation_columns(obj, results_table, results_prefix, group_key)
+    .log_unannotated_clusters(result, prepped_data$clusterLabels)
+    .log_result_locations(results_prefix, group_key)
   }
 
   return(obj)
@@ -440,7 +664,7 @@ CyteTypeR <- function(obj,
 #' If \code{obj} and \code{results_prefix} are given, tries to load from
 #' \code{obj@misc} first. If no local result exists but job details are
 #' available, fetches the result from the API.
-#' If only \code{job_id} is given, fetches from the API and returns (saves JSON).
+#' If only \code{job_id} is given, fetches the result from the API.
 #'
 #' @param obj Seurat object that may contain stored results (optional).
 #' @param job_id Job ID from submission (optional if \code{obj} + \code{results_prefix} have stored job details).
@@ -451,7 +675,55 @@ CyteTypeR <- function(obj,
 #' @param api_url Optional CyteType server origin for standalone or legacy job
 #'   retrieval. When `NULL`, uses `CYTETYPE_API_URL` or
 #'   `https://cytetype.nygen.io`.
-#' @return Result list (annotations, summary, etc.), or transformed results when fetching by \code{job_id} only.
+#' @param save_json Logical. When the results are fetched by `job_id`, whether
+#'   to save the server's response as `cytetypeR_results_<job_id>.json` in the
+#'   working directory. Default is `TRUE`.
+#' @return Depends on where the results come from:
+#'   \itemize{
+#'     \item `GetResults(obj)` after a run with the default prefix: the
+#'       data.frame in `obj@misc$cytetype_results` (see [CyteTypeR()]).
+#'     \item Results stored under another prefix, or fetched for the job stored
+#'       in `obj`: a list with `annotations` (one list per annotated cluster
+#'       with `clusterId`, the CyteType cluster ID, `annotation`,
+#'       `ontologyTerm`, `ontologyTermID`, `granularAnnotation`, `cellState`,
+#'       `justification`, `supportingMarkers`, `conflictingMarkers`,
+#'       `missingExpression`, `unexpectedExpression`, `reviewerConfidence`,
+#'       `isHeterogeneous` and `heterogeneityType`), `raw_annotations` (the
+#'       server's per-cluster results, unchanged) and the server's
+#'       `studyContext`, `summary`, `semanticOrder`, `clusterCategories` and
+#'       `displayLevel`.
+#'     \item `GetResults(job_id = ...)`: a data.frame with the same columns as
+#'       `obj@misc$cytetype_results`, where `clusterId` is the CyteType cluster
+#'       ID. Its attributes `"job_id"` and `"result"` hold the job ID and the
+#'       list described above.
+#'     \item `NULL`, with a message, when the job has not finished yet or is
+#'       not found.
+#'   }
+#' @details
+#' Fetching asks the server for the job's status and, when the job has
+#' completed, for its results: two requests, without waiting. A failed job
+#' stops with an error. When the status or the results cannot be fetched,
+#' `GetResults()` signals a [cytetype_api_error()] condition whose
+#' `error_code` holds the server's code when it sent one, such as
+#' `"REPORT_DELETED"`. Problems with the API key signal its subclass
+#' `cytetype_auth_error`.
+#'
+#' `reviewerConfidence` is `"High"`, `"Moderate"` or `"Low"` (`NULL` in the
+#' list and `NA` in the table when missing), `isHeterogeneous` is `TRUE` or
+#' `FALSE` (or missing), and `heterogeneityType` names the kind of
+#' heterogeneity the reviewer found. In the list, `supportingMarkers` and
+#' `conflictingMarkers` are lists of gene names.
+#'
+#' Fetched results are not added to `obj`; R does not modify the object you
+#' pass in.
+#' @examples
+#' \dontrun{
+#' # Results stored in the object by CyteTypeR()
+#' results <- GetResults(annotated_seurat)
+#'
+#' # Results of a job by its ID, without saving the JSON file
+#' results <- GetResults(job_id = "<JOB_ID>", save_json = FALSE)
+#' }
 #' @seealso [CyteTypeR()] for job submission
 #' @importFrom jsonlite write_json
 #' @export
@@ -459,7 +731,8 @@ GetResults <- function(obj = NULL,
                        job_id = NULL,
                        results_prefix = "cytetype",
                        auth_token = NULL,
-                       api_url = NULL) {
+                       api_url = NULL,
+                       save_json = TRUE) {
   if (!is.null(obj) && !is.null(results_prefix)) {
     results_key <- paste0(results_prefix, "_results")
     job_details_key <- paste0(results_prefix, "_jobDetails")
@@ -470,7 +743,8 @@ GetResults <- function(obj = NULL,
           !is.data.frame(stored_results) &&
           all(c("job_id", "result") %in% names(stored_results))
       ) {
-        return(stored_results$result)
+        # Results stored by earlier versions gain the keys added since.
+        return(.normalize_results(stored_results$result))
       }
       return(stored_results)
     }
@@ -500,24 +774,11 @@ GetResults <- function(obj = NULL,
       }
       token <- .resolve_auth_token(job_api_url, auth_token)
       status_resp <- .make_results_request(job_id, job_api_url, token)
-      if (status_resp$status == "completed" && !is.null(status_resp$result)) {
-        result <- .normalize_result_annotations(status_resp$result)
-        if (!is.null(details$group_key) && !is.null(details$cluster_labels))
-          obj <- .store_annotations_seurat(obj, result, job_id, results_prefix, details$group_key, details$cluster_labels)
-        if (is.null(obj@misc)) obj@misc <- list()
-        obj@misc[[results_key]] <- list(job_id = job_id, result = result)
-        return(result)
+      result <- .completed_result_or_null(status_resp, job_id, job_api_url)
+      if (is.null(result)) {
+        return(NULL)
       }
-      if (status_resp$status == "failed") {
-        stop(status_resp$message %||% paste("Job", job_id, "failed."), call. = FALSE)
-      }
-      if (status_resp$status == "error") {
-        stop(
-          status_resp$message %||% paste("Could not retrieve job", job_id),
-          call. = FALSE
-        )
-      }
-      return(NULL)
+      return(.normalize_results(result))
     }
   }
   if (is.null(job_id)) {
@@ -526,58 +787,88 @@ GetResults <- function(obj = NULL,
   }
   api_url <- .resolve_api_url(api_url)
   auth_token <- .resolve_auth_token(api_url, auth_token)
-  response <- .api_response_helper(job_id, api_url, "results", auth_token)
-  write_json(response$data,
-             path = paste0("cytetypeR_results_", job_id, ".json"),
-             auto_unbox = TRUE,
-             pretty = TRUE)
-  if (!is.null(response$data)) {
-    transformed_results <- .transform_results_seurat(response$data)
-    return(transformed_results)
+  status_resp <- .make_results_request(job_id, api_url, auth_token)
+  data <- .completed_result_or_null(status_resp, job_id, api_url)
+  if (is.null(data)) {
+    return(NULL)
   }
-  return(response$data)
+  if (isTRUE(save_json)) {
+    json_path <- paste0("cytetypeR_results_", job_id, ".json")
+    write_json(data, path = json_path, auto_unbox = TRUE, pretty = TRUE)
+    log_info("Saved the server's response to {json_path}.")
+  }
+  result <- .normalize_results(data)
+  .results_table_with_attributes(result, job_id)
+}
+
+# The results of a completed job; NULL with a message while the job is still
+# running or cannot be found; an error when the job failed, and a
+# cytetype_api_error when its status or results could not be fetched.
+.completed_result_or_null <- function(status_resp, job_id, api_url) {
+  status <- status_resp[["status"]] %||% "error"
+  if (identical(status, "completed") && !is.null(status_resp[["result"]])) {
+    return(status_resp[["result"]])
+  }
+  condition <- status_resp[["condition"]]
+  if (inherits(condition, "cytetype_api_error")) {
+    stop(condition)
+  }
+  if (identical(status, "failed")) {
+    stop(status_resp[["message"]] %||% paste("Job", job_id, "failed."), call. = FALSE)
+  }
+  if (identical(status, "error")) {
+    stop(cytetype_api_error(
+      message = status_resp[["message"]] %||% paste("Could not retrieve job", job_id),
+      call = status_resp[["error_type"]] %||% "api"
+    ))
+  }
+  report_url <- .url_path(api_url, "report", job_id)
+  if (status %in% c("pending", "processing")) {
+    message(
+      "Job ", job_id, " is still ", status, "; its results are not available yet. ",
+      "Follow it at ", report_url, " and run ", .results_hint(job_id), " again once it has finished."
+    )
+  } else if (identical(status, "not_found")) {
+    message(
+      "Job ", job_id, " was not found on ", api_url, ". ",
+      "Check the job ID and the API URL, or try again shortly after submitting a job."
+    )
+  } else {
+    message("Job ", job_id, " has status '", status, "'; no results are available.")
+  }
+  NULL
 }
 
 
 #' Clean Up Artifacts
 #'
 #' @description
-#' Cleans up the artifact files after the run.
+#' Deletes the artifact files (`vars.h5` and `obs.duckdb`) that
+#' [PrepareCyteTypeR()] wrote, once [CyteTypeR()] has uploaded them.
 #'
 #' @param prepped_data Named list containing prepared data from `PrepareCyteTypeR()`.
+#' @return Invisibly, `TRUE` when the artifact files had been built and are now
+#'   removed, and `FALSE` when they were never built (nothing is deleted).
+#' @examples
+#' \dontrun{
+#' prepped_data <- PrepareCyteTypeR(pbmc, pbmc.markers)
+#' pbmc <- CyteTypeR(pbmc, prepped_data, study_context = "Human PBMCs")
+#' CleanUpArtifacts(prepped_data)
+#' }
 #' @importFrom logger log_info log_warn
 #' @export
 CleanUpArtifacts <- function(prepped_data) {
-  if (isTRUE(prepped_data$build_succeeded)) {
-    log_info("Cleaning up artifact files...")
-    tryCatch(file.remove(prepped_data$vars_h5_path), error = function(e) NULL)
-    log_info("Removed vars.h5 file.")
-    tryCatch(file.remove(prepped_data$obs_duckdb_path), error = function(e) NULL)
-    log_info("Removed obs.duckdb file.")
-    log_info("Artifact files cleaned up successfully.")
-  } else {
+  if (!isTRUE(prepped_data$build_succeeded)) {
     log_warn("Artifact files not built. No cleanup performed.")
+    return(invisible(FALSE))
   }
+  log_info("Cleaning up artifact files...")
+  for (path in c(prepped_data$vars_h5_path, prepped_data$obs_duckdb_path)) {
+    if (is.character(path) && length(path) == 1L && file.exists(path)) {
+      unlink(path, force = TRUE)
+      log_info("Removed {path}.")
+    }
+  }
+  log_info("Artifact files cleaned up successfully.")
+  invisible(TRUE)
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

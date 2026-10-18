@@ -193,8 +193,3 @@ test_that(".save_vars_h5 omits raw group when raw_mat is NULL", {
   contents <- rhdf5::h5ls(out)
   expect_false("raw" %in% contents$name)
 })
-
-test_that(".save_vars_h5 fails gracefully when rhdf5filters is missing", {
-  skip_if_not_installed("rhdf5")
-  skip("Cannot mock base::requireNamespace; rhdf5filters guard is validated manually")
-})

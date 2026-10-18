@@ -136,8 +136,21 @@
   n_obs <- nrow(mat)
   n_vars <- ncol(mat)
 
-  if (!requireNamespace("rhdf5filters", quietly = TRUE)) {
-    stop("Package 'rhdf5filters' is required to write vars.h5 with LZ4 compression.")
+  # rhdf5 imports rhdf5filters, which provides the BLOSC LZ4 filter.
+
+  # Raw counts are stored as int32, so only write them when every value is a
+  # whole number; as.integer() would silently truncate anything else.
+  if (!is.null(raw_mat)) {
+    if (nrow(raw_mat) != n_vars || ncol(raw_mat) != n_obs) {
+      log_warn(paste0(
+        "Raw counts have ", nrow(raw_mat), " genes and ", ncol(raw_mat), " cells, but the ",
+        "expression matrix has ", n_vars, " and ", n_obs, ". Skipping raw counts in vars.h5."
+      ))
+      raw_mat <- NULL
+    } else if (!.is_integer_valued(raw_mat)) {
+      log_warn("The raw counts are not integer-valued. Skipping raw counts in vars.h5.")
+      raw_mat <- NULL
+    }
   }
 
   if (is.null(col_batch)) {
@@ -185,10 +198,8 @@
 
 .save_obs_duckdb <- function(out_file, obs_df, coordinates = NULL, coordinates_key = NULL,
                              table_name = "obs",
-                             threads = "4", memory_limit = "4GB", temp_directory = "tmp/duckdb") {
-  if (!requireNamespace("duckdb", quietly = TRUE)) {
-    stop("Package 'duckdb' is required to build obs.duckdb. Install with: install.packages('duckdb')")
-  }
+                             threads = "4", memory_limit = "4GB", temp_directory = NULL) {
+  .require_duckdb()
   if (!grepl("^[A-Za-z_][A-Za-z0-9_]*$", table_name)) {
     stop("Invalid table_name. Use letters, numbers, and underscores only.")
   }
@@ -197,6 +208,10 @@
 
   if (!is.null(coordinates) && !is.null(coordinates_key)) {
     coords <- as.matrix(coordinates)
+    if (!is.null(rownames(coords)) && !is.null(rownames(df)) &&
+        !identical(rownames(coords), rownames(df)) && all(rownames(df) %in% rownames(coords))) {
+      coords <- coords[rownames(df), , drop = FALSE]
+    }
     if (ncol(coords) >= 2 && nrow(coords) == nrow(df)) {
       col1 <- paste0("__vis_coordinates_", coordinates_key, "_1")
       col2 <- paste0("__vis_coordinates_", coordinates_key, "_2")
@@ -208,9 +223,35 @@
   cli::cli_progress_step("Writing obs.duckdb")
 
   if (file.exists(out_file)) file.remove(out_file)
-  config <- list(threads = as.character(threads), memory_limit = memory_limit, temp_directory = temp_directory)
-  con <- duckdb::dbConnect(duckdb::duckdb(), out_file, config = config)
-  on.exit(duckdb::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  config <- list(threads = as.character(threads), memory_limit = memory_limit)
+  if (is.null(temp_directory)) {
+    # DuckDB spills to temp_directory when memory_limit is exceeded. A fixed
+    # path relative to the working directory is shared between runs and never
+    # cleaned up, so use a private directory under the session's tempdir().
+    spill_directory <- tempfile("cytetype-duckdb-")
+    if (dir.create(spill_directory, showWarnings = FALSE, recursive = TRUE, mode = "0700")) {
+      on.exit(unlink(spill_directory, recursive = TRUE, force = TRUE), add = TRUE)
+      temp_directory <- spill_directory
+    } else {
+      log_warn("Could not create a temporary directory for DuckDB; using DuckDB's default spill location.")
+    }
+  }
+  if (!is.null(temp_directory)) {
+    config$temp_directory <- temp_directory
+  }
+  con <- duckdb::dbConnect(.duckdb_driver(), out_file, config = config)
+  # Disconnect before the spill directory is removed.
+  on.exit(duckdb::dbDisconnect(con, shutdown = TRUE), add = TRUE, after = FALSE)
   duckdb::dbWriteTable(con, table_name, df, overwrite = TRUE)
   invisible(out_file)
+}
+
+# Writing obs.duckdb needs no extensions or secrets, so keep newer duckdb
+# versions from storing them in the shared ~/.duckdb directory.
+.duckdb_driver <- function() {
+  if ("shared_home" %in% names(formals(duckdb::duckdb))) {
+    duckdb::duckdb(shared_home = FALSE)
+  } else {
+    duckdb::duckdb()
+  }
 }

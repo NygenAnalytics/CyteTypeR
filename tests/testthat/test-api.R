@@ -109,10 +109,50 @@ test_that(".api_response_helper preserves rate-limit guidance", {
     conditionMessage(rate_limit_error),
     paste0(
       "Free-tier limit reached\n",
-      "Use your own LLM API key via llm_configs to bypass free-tier limits, ",
-      "or wait before retrying."
+      "The limits apply to every job, including jobs that use your own LLM ",
+      "through llm_configs. Wait for the limit to reset before retrying."
     )
   )
+})
+
+test_that("the rate-limit message never says your own LLM bypasses the limits", {
+  httr2::local_mocked_responses(function(req) {
+    httr2::response(
+      status_code = 429L,
+      headers = list("Content-Type" = "application/json"),
+      body = charToRaw(paste0(
+        '{"detail":{"error_code":"RATE_LIMIT_EXCEEDED",',
+        '"message":"Daily limit reached (10/10). Resets in about 5 hours."}}'
+      ))
+    )
+  })
+
+  rate_limit_error <- tryCatch(
+    CyteTypeR:::.submit_job(list(input_data = list()), "https://api.example.com", "tok"),
+    error = identity
+  )
+
+  message <- conditionMessage(rate_limit_error)
+  expect_match(message, "Daily limit reached (10/10)", fixed = TRUE)
+  expect_match(message, "including jobs that use your own LLM", fixed = TRUE)
+  expect_false(grepl("bypass", message, ignore.case = TRUE))
+})
+
+test_that(".api_response_helper classifies connection failures as network errors", {
+  httr2::local_mocked_responses(function(req) {
+    stop(structure(
+      list(message = "Could not connect to server", call = NULL),
+      class = c("httr2_failure", "httr2_error", "error", "condition")
+    ))
+  })
+
+  error <- tryCatch(
+    CyteTypeR:::.api_response_helper("job-123", "https://api.example.com", "status"),
+    error = identity
+  )
+
+  expect_s3_class(error, "cytetype_api_error")
+  expect_identical(error$call, "network")
 })
 
 # --- .put_to_presigned_url ---
@@ -176,4 +216,182 @@ test_that(".put_to_presigned_url raises api error on HTTP 400", {
     "Presigned upload rejected with HTTP 400",
     class = "cytetype_api_error"
   )
+})
+
+# --- Server error bodies, as FastAPI sends them for the CyteType server ---
+
+# 400 from a route wrapped by the server's capture_core_errors: a plain
+# HTTPException detail is turned into {"error_code": "HTTP_ERROR", ...}.
+ORG_VISIBILITY_WRAPPED <- paste0(
+  '{"detail": {"error_code": "HTTP_ERROR", ',
+  '"message": "Org visibility requires an organization license"}}'
+)
+# An HTTPException outside a wrapped route keeps its plain text detail.
+ORG_VISIBILITY_PLAIN <- '{"detail": "Org visibility requires an organization license"}'
+# FastAPI's request validation error (HTTP 422).
+VISIBILITY_422 <- paste0(
+  '{"detail": [{"type": "literal_error", "loc": ["body", "visibility"], ',
+  '"msg": "Input should be \'private\', \'org\' or \'public\'", "input": "shared", ',
+  '"ctx": {"expected": "\'private\', \'org\' or \'public\'"}}]}'
+)
+
+body_response <- function(status_code, body) {
+  httr2::response(
+    status_code = status_code,
+    headers = list("Content-Type" = "application/json"),
+    body = charToRaw(body)
+  )
+}
+
+test_that(".parse_server_error reads every error body the server sends", {
+  parse <- function(status_code, body) {
+    CyteTypeR:::.parse_server_error(body_response(status_code, body))
+  }
+
+  expect_identical(
+    parse(400L, ORG_VISIBILITY_WRAPPED),
+    list(error_code = "HTTP_ERROR", message = "Org visibility requires an organization license")
+  )
+  expect_identical(
+    parse(400L, ORG_VISIBILITY_PLAIN),
+    list(error_code = NULL, message = "Org visibility requires an organization license")
+  )
+  expect_identical(
+    parse(422L, VISIBILITY_422),
+    list(error_code = NULL, message = "body.visibility: Input should be 'private', 'org' or 'public'")
+  )
+  expect_null(parse(502L, '{"detail": []}'))
+  expect_null(CyteTypeR:::.parse_server_error(httr2::response(
+    status_code = 502L,
+    headers = list("Content-Type" = "text/html"),
+    body = charToRaw("<html>Bad gateway</html>")
+  )))
+})
+
+test_that("job submission errors show the server's explanation", {
+  cases <- list(
+    list(status = 400L, body = ORG_VISIBILITY_WRAPPED,
+         expected = "Job submission failed: [HTTP_ERROR] Org visibility requires an organization license"),
+    list(status = 400L, body = ORG_VISIBILITY_PLAIN,
+         expected = "Job submission failed: Org visibility requires an organization license"),
+    list(status = 422L, body = VISIBILITY_422,
+         expected = "Job submission failed: body.visibility: Input should be 'private', 'org' or 'public'")
+  )
+  for (case in cases) {
+    httr2::local_mocked_responses(function(req) body_response(case$status, case$body))
+
+    error <- tryCatch(
+      CyteTypeR:::.submit_job(list(input_data = list()), "https://api.example.com", "tok"),
+      error = identity
+    )
+
+    expect_identical(conditionMessage(error), case$expected)
+  }
+})
+
+test_that("upload errors show a plain text explanation", {
+  f <- tempfile(fileext = ".duckdb")
+  on.exit(unlink(f), add = TRUE)
+  writeBin(raw(16), f)
+  httr2::local_mocked_responses(function(req) {
+    body_response(403L, '{"detail": "User account is inactive"}')
+  })
+
+  expect_error(
+    CyteTypeR:::.upload_file_chunked("https://api.example.com", "tok", "obs_duckdb", f, 60L,
+                                     max_workers = 1L, show_progress = FALSE),
+    "^Upload initiate failed: User account is inactive$"
+  )
+})
+
+test_that("status errors with a plain text or 422 body keep the explanation", {
+  httr2::local_mocked_responses(function(req) body_response(400L, ORG_VISIBILITY_PLAIN))
+  error <- tryCatch(
+    CyteTypeR:::.api_response_helper("job-1", "https://api.example.com", "status"),
+    error = identity
+  )
+  expect_s3_class(error, "cytetype_api_error")
+  expect_identical(
+    conditionMessage(error),
+    "Error while checking job status: HTTP 400 Org visibility requires an organization license"
+  )
+  expect_null(error$error_code)
+
+  httr2::local_mocked_responses(function(req) body_response(422L, VISIBILITY_422))
+  error <- tryCatch(
+    CyteTypeR:::.api_response_helper("job-1", "https://api.example.com", "results"),
+    error = identity
+  )
+  expect_identical(
+    conditionMessage(error),
+    "Error while fetching job results: HTTP 422 body.visibility: Input should be 'private', 'org' or 'public'"
+  )
+})
+
+test_that("cytetype_api_error carries an optional error code", {
+  error <- cytetype_api_error("boom", call = "api", error_code = "REPORT_DELETED")
+  expect_identical(error$error_code, "REPORT_DELETED")
+  expect_null(cytetype_api_error("boom")$error_code)
+  expect_null(conditionCall(error))
+  expect_identical(error$call, "api")
+})
+
+test_that(".api_response_helper records the HTTP status of error responses", {
+  status_error <- function(response, req_item = "results") {
+    httr2::local_mocked_responses(function(req) response)
+    tryCatch(
+      CyteTypeR:::.api_response_helper("job-1", "https://api.example.com", req_item, "tok"),
+      error = identity
+    )
+  }
+
+  unavailable <- status_error(body_response(
+    503L, '{"detail": {"error_code": "HTTP_ERROR", "message": "Service unavailable"}}'
+  ))
+  expect_s3_class(unavailable, "cytetype_api_error")
+  expect_identical(unavailable$status_code, 503L)
+  expect_identical(unavailable$error_code, "HTTP_ERROR")
+
+  deleted <- status_error(body_response(
+    410L, '{"detail": {"error_code": "REPORT_DELETED", "message": "This report has been deleted by the owner"}}'
+  ), req_item = "status")
+  expect_identical(deleted$status_code, 410L)
+  expect_identical(deleted$error_code, "REPORT_DELETED")
+
+  rate_limited <- status_error(body_response(
+    429L, '{"detail": {"error_code": "RATE_LIMIT_EXCEEDED", "message": "Hourly limit reached (5/5)."}}'
+  ))
+  expect_identical(rate_limited$status_code, 429L)
+  expect_identical(rate_limited$error_code, "RATE_LIMIT_EXCEEDED")
+
+  gateway <- status_error(httr2::response(
+    status_code = 502L,
+    headers = list("Content-Type" = "text/html"),
+    body = charToRaw("<html>Bad gateway</html>")
+  ))
+  expect_identical(gateway$status_code, 502L)
+  expect_null(gateway$error_code)
+
+  for (code in c(401L, 403L)) {
+    auth <- status_error(body_response(code, '{"detail": "Invalid API token"}'))
+    expect_s3_class(auth, "cytetype_auth_error")
+    expect_identical(auth$status_code, code)
+  }
+})
+
+test_that("errors without a response have no HTTP status", {
+  httr2::local_mocked_responses(function(req) {
+    stop(structure(
+      list(message = "Could not connect to server", call = NULL),
+      class = c("httr2_failure", "httr2_error", "error", "condition")
+    ))
+  })
+
+  error <- tryCatch(
+    CyteTypeR:::.api_response_helper("job-1", "https://api.example.com", "results"),
+    error = identity
+  )
+
+  expect_identical(error$call, "network")
+  expect_null(error$status_code)
 })

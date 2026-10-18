@@ -1,209 +1,57 @@
 ---
 title: "Getting Started"
-output: 
-  rmarkdown::html_vignette:
-    toc: true
-    toc_depth: 2
-    df_print: paged
-  html_document:
-    toc: true
-    toc_depth: 2
-    toc_float: true
-    df_print: paged
-date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{Getting Started}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
-## Introduction
-
-CyteTypeR is the R client for [CyteType](https://github.com/NygenAnalytics/CyteType). It prepares clustered Seurat objects, submits annotation jobs to the CyteType API, and adds the returned annotations to the Seurat object.
-
-This vignette demonstrates a basic workflow using a PBMC dataset processed with the standard Seurat workflow.
-
-## Installation
-
-```{r eval=FALSE}
-# Using devtools
-install.packages("devtools")
-
-# Install from GitHub
-library(devtools)
-install_github("NygenAnalytics/CyteTypeR")
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE, collapse = TRUE, comment = "#>")
 ```
 
-## Authentication
+CyteTypeR is the R client for [CyteType](https://github.com/NygenAnalytics/CyteType). It prepares a clustered Seurat object, submits an annotation job to the CyteType API and adds the returned annotations to the object.
 
-### Sign in from R
+The full documentation for the R and Python clients is at <https://docs.nygen.io/CyteType/>. Start with the [R quickstart](https://docs.nygen.io/CyteType/getting-started/quickstart-r/), which annotates the 10x Genomics PBMC 3k dataset step by step. The code on this page is not run when the vignette is built.
 
-Sign in once on each machine. CyteType opens a browser, verifies your email with a one-time code, and saves a personal API key locally.
+## The workflow in brief
 
-```{r eval=FALSE}
+Sign in once on each computer. This opens CyteType sign-in in your browser and saves an API key locally:
+
+```{r}
 library(CyteTypeR)
-
 SetupCyteTypeR()
 ```
 
-If you already have a CyteType API key, save it through a hidden prompt:
+Then prepare a normalized, clustered Seurat object and its marker table (from `Seurat::FindAllMarkers()`), and submit the job:
 
-```{r eval=FALSE}
-LoginCyteTypeR()
-```
-
-### Sign in from the terminal
-
-Install the `cytetyper` command into the active R environment:
-
-```{r eval=FALSE}
-InstallCyteTypeRCli()
-```
-
-Then use it directly from the terminal:
-
-```sh
-cytetyper setup
-cytetyper dashboard
-cytetyper view <JOB_ID>
-cytetyper logout
-```
-
-The R and Python clients use the same local CyteType credentials file.
-
-### Use a development environment
-
-Replace `<URL>` with the development URL supplied for your environment.
-
-```{r eval=FALSE}
-SetupCyteTypeR(api_url = "<URL>")
-```
-
-```sh
-cytetyper setup --api-url "<URL>"
-```
-
-Alternatively, configure the development URL for the current shell:
-
-```sh
-export CYTETYPE_API_URL="<URL>"
-cytetyper setup
-```
-
-## Quick Start
-
-```{r eval=FALSE}
-# Load package
-library(CyteTypeR)
-
-# Sign in once if this machine is not configured
-SetupCyteTypeR()
-
+```{r}
 prepped_data <- PrepareCyteTypeR(
-  pbmc,
-  pbmc.markers,
-  n_top_genes = 10,
+  obj = pbmc,
+  marker_table = pbmc.markers,
   group_key = "seurat_clusters",
-  aggregate_metadata = TRUE,
   coordinates_key = "umap"
 )
 
-metadata <- list(
-  title = "My scRNA-seq analysis of human PBMCs",
-  run_label = "initial_analysis",
-  experiment_name = "pbmc_human_samples_study"
-)
-
-annotated_pbmc <- CyteTypeR(
+pbmc <- CyteTypeR(
   obj = pbmc,
   prepped_data = prepped_data,
-  study_context = "PBMC blood samples from humans",
-  metadata = metadata
+  study_context = "Peripheral blood mononuclear cells from a healthy human donor",
+  metadata = list(title = "PBMC 3k")
 )
 ```
 
-## Pre-processing
+Every cell now has its cluster's label, Cell Ontology term, cell state and reviewer confidence in `pbmc@meta.data`, and `pbmc@misc$cytetype_results` has one row per cluster:
 
-CyteTypeR requires a Seurat object with normalized RNA expression, cluster assignments, marker genes, and optionally a dimensional reduction for report visualization.
-
-``` {r eval=FALSE}
-# Load libraries
-library(dplyr)
-library(patchwork)
-library(Matrix)
-library(Seurat)
-
-# Load the dataset
-pbmc.data <- Read10X(data.dir = "./data/filtered_gene_bc_matrices/hg19/")
-
-# Initialize and normalize the Seurat object
-pbmc <- CreateSeuratObject(counts = pbmc.data, project = "pbmc3k", min.cells = 3, min.features = 200)
-pbmc <- NormalizeData(pbmc, normalization.method = "LogNormalize", scale.factor = 10000)
-pbmc <- FindVariableFeatures(pbmc, selection.method = "vst", nfeatures = 2000)
-
-all.genes <- rownames(pbmc)
-pbmc <- ScaleData(pbmc, features = all.genes)
-
-# Cluster the cells and run UMAP
-pbmc <- FindNeighbors(pbmc, dims = 1:10)
-pbmc <- FindClusters(pbmc, resolution = 0.5)
-pbmc <- RunUMAP(pbmc, dims = 1:10)
-
-# Find and filter markers for all clusters
-pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE)
-pbmc.markers <- pbmc.markers %>%
-  group_by(cluster) %>%
-  dplyr::filter(avg_log2FC > 1)
+```{r}
+head(pbmc@meta.data$cytetype_annotation_seurat_clusters)
+GetResults(pbmc)
 ```
 
-## Run CyteTypeR
+## More
 
-``` {r eval=FALSE}
-# Prepare data for submission
-prepped_data <- PrepareCyteTypeR(
-  pbmc,
-  pbmc.markers,
-  n_top_genes = 10,
-  group_key = "seurat_clusters",
-  aggregate_metadata = TRUE,
-  coordinates_key = "umap"
-)
-
-# Add metadata to the report
-metadata <- list(
-  title = "My scRNA-seq analysis of human PBMCs",
-  run_label = "initial_analysis",
-  experiment_name = "pbmc_human_samples_study"
-)
-
-# Submit the job and add results to the Seurat object
-annotated_pbmc <- CyteTypeR(
-  obj = pbmc,
-  prepped_data = prepped_data,
-  study_context = "PBMC blood samples from humans",
-  metadata = metadata
-)
-```
-
-## Open reports and retrieve results
-
-Successful submissions print a report URL under `https://cytetype.nygen.io`. You can reopen the dashboard or a known job from R:
-
-```{r eval=FALSE}
-OpenCyteTypeDashboard()
-ViewCyteTypeJob("<JOB_ID>")
-```
-
-The same operations are available from the terminal:
-
-```sh
-cytetyper dashboard
-cytetyper view <JOB_ID>
-```
-
-Results from a completed run are stored in the returned Seurat object. With the default prefix, the transformed result table is available at:
-
-```{r eval=FALSE}
-View(annotated_pbmc@misc[["cytetype_results"]])
-GetResults(annotated_pbmc)
-```
+- [Installation](https://docs.nygen.io/CyteType/getting-started/installation/) and [Sign in and API keys](https://docs.nygen.io/CyteType/getting-started/sign-in/)
+- [Prepare your data](https://docs.nygen.io/CyteType/guides/prepare-data/) and [Run, monitor and rerun jobs](https://docs.nygen.io/CyteType/guides/running-jobs/)
+- [Results in AnnData and Seurat](https://docs.nygen.io/CyteType/results/results-in-your-data/)
+- [R function reference](https://docs.nygen.io/CyteType/reference/r-api/), also available in R with `?CyteTypeR` and the other help pages

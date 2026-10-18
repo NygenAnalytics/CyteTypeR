@@ -22,7 +22,8 @@ CyteTypeR(
   upload_max_workers = 6L,
   require_artifacts = TRUE,
   show_progress = TRUE,
-  override_existing_results = FALSE
+  override_existing_results = FALSE,
+  visibility = NULL
 )
 }
 \arguments{
@@ -30,19 +31,31 @@ CyteTypeR(
 
 \item{prepped_data}{Named list containing prepared data from \code{PrepareCyteTypeR()}.}
 
-\item{study_context}{Optional character. Biological context for the experimental setup (e.g. organisms, tissues, diseases, developmental stages, single_cell methods, experimental conditions). Default is \code{NULL}.}
+\item{study_context}{Optional character. Biological context for the experimental setup (e.g. organisms, tissues, diseases, developmental stages, single-cell methods, experimental conditions). Default is \code{NULL}.}
 
-\item{llm_configs}{Optional list of LLM configs. Each element must match the LLMModelConfig schema with required \code{provider} and \code{name}; either \code{apiKey} or all AWS credentials (\code{awsAccessKeyId}, \code{awsSecretAccessKey}, \code{awsDefaultRegion}) must be provided. Default is \code{NULL} (API default model).}
+\item{llm_configs}{Optional list of LLM configs. Each element must match the LLMModelConfig schema with required \code{provider} and \code{name}; either \code{apiKey} or all AWS credentials (\code{awsAccessKeyId}, \code{awsSecretAccessKey}, \code{awsDefaultRegion}) must be provided. \code{provider} is one of \code{"anthropic"}, \code{"bedrock"}, \code{"deepseek"}, \code{"fireworks"}, \code{"google"}, \code{"groq"}, \code{"huggingface"}, \code{"mistral"}, \code{"nebius"}, \code{"openai"}, \code{"openrouter"}, \code{"together"}, \code{"vertex"} or \code{"xai"}. Default is \code{NULL} (API default model).}
 
 \item{metadata}{Optional named list. Custom metadata tags for the report header; URL-like values are made clickable in the report. Default is \code{NULL}.}
 
 \item{n_parallel_clusters}{Integer. Number of parallel requests to the model (max 50). High values can trigger rate limits. Default is 2.}
 
-\item{results_prefix}{Character. Prefix for keys added to \code{obj@meta.data} and \code{obj@misc} storing results; the annotation column is \code{obj@meta.data[[paste(results_prefix, group_key, sep = "_")]]}. Default is \code{"cytetype"}.}
+\item{results_prefix}{Character. Prefix for the results added to \code{obj}. The
+factor columns \verb{<prefix>_annotation_<group_key>},
+\verb{<prefix>_cellOntologyTerm_<group_key>},
+\verb{<prefix>_cellOntologyTermID_<group_key>}, \verb{<prefix>_cellState_<group_key>}
+and \verb{<prefix>_reviewerConfidence_<group_key>} are added to \code{obj@meta.data},
+with three copies under older names: \verb{<prefix>_<group_key>} (label),
+\verb{<prefix>_ontologyTerm_<group_key>} and \verb{<prefix>_ontologyID_<group_key>}.
+The job details are stored in \code{obj@misc[[paste0(prefix, "_jobDetails")]]}
+and the results as described under Value. Default is \code{"cytetype"}.}
 
 \item{poll_interval_seconds}{Integer. How often (seconds) to poll the API for results. Default from options (10).}
 
-\item{timeout_seconds}{Integer. Maximum time (seconds) to wait for results before erroring. Default from options (7200).}
+\item{timeout_seconds}{Integer. Maximum time (seconds) to wait for results.
+When it is reached, \code{CyteTypeR()} stops with an error of class
+\code{cytetype_timeout_error} that names the job ID; the job keeps running on
+the server and \code{\link[=GetResults]{GetResults()}} retrieves its results later. Default from
+options (7200).}
 
 \item{api_url}{Optional character. CyteType API server origin. If \code{NULL},
 uses \code{CYTETYPE_API_URL}, the configured R option, or
@@ -68,9 +81,41 @@ configuration.}
 \item{show_progress}{Logical. Whether to show progress (spinner and cluster status). Set \code{FALSE} to disable. Default is \code{TRUE}.}
 
 \item{override_existing_results}{Logical. If \code{TRUE}, allow overwriting existing results with the same \code{results_prefix}. If \code{FALSE} and results exist, an error is raised. Default is \code{FALSE}.}
+
+\item{visibility}{Optional character. Who can view the report: \code{"private"},
+\code{"org"} (your organization; needs an organization API key) or \code{"public"}
+(anyone with the link). Default is \code{NULL}, which uses the server default
+(\code{"private"}). With \code{"org"} and an API key that looks like a personal key
+(it starts with \code{cyt_p_}), a warning is logged before the files are
+uploaded and the run continues; the server checks the key when the job is
+submitted and rejects personal keys.}
 }
 \value{
-The input Seurat object with added annotation metadata (and artifact uploads when artifacts are built and uploaded).
+The Seurat object \code{obj} with the results added. Assign it, for
+example \code{obj <- CyteTypeR(obj, prepped_data)}; the object you pass in is
+not changed.
+\itemize{
+\item \code{obj@meta.data} gains the factor columns listed under
+\code{results_prefix}. Cells in clusters without a result get \code{"Unknown"}
+(\code{""} for the cell state) in the first five columns and \code{NA} in the
+three older ones. The reviewer confidence column holds \code{"High"},
+\code{"Moderate"}, \code{"Low"}, or \code{"Unknown"} when it is missing; its levels
+follow that order, and only the levels that occur are kept.
+\item \code{obj@misc[[paste0(prefix, "_jobDetails")]]} holds \code{job_id},
+\code{report_url}, \code{api_url}, \code{group_key}, \code{cluster_labels} and, when set,
+\code{visibility}.
+\item With the default prefix, \code{obj@misc$cytetype_results} is a
+data.frame with one row per annotated cluster and the columns
+\code{clusterId} (your cluster label), \code{annotation}, \code{ontologyTerm},
+\code{ontologyTermID}, \code{granularAnnotation}, \code{cellState}, \code{justification},
+\code{supportingMarkers}, \code{conflictingMarkers}, \code{missingExpression},
+\code{unexpectedExpression}, \code{reviewerConfidence}, \code{isHeterogeneous} and
+\code{heterogeneityType}. Its attributes \code{"job_id"} and \code{"result"} hold the
+job ID and the full results in the form returned by \code{\link[=GetResults]{GetResults()}}.
+\item With another prefix, \code{obj@misc[[paste0(prefix, "_results")]]} is a
+list with \code{job_id} and \code{result} (the full results), and
+\code{obj@misc$cytetype_results} is left as it is.
+}
 }
 \description{
 Submits a prepared dataset to CyteType for automated cell type annotation
@@ -82,13 +127,26 @@ The function performs the following workflow:
 \enumerate{
 \item Constructs the analysis query from prepared data
 \item Optionally saves the query to a JSON file
-\item Submits the job and records its details in the returned object
+\item Uploads the artifact files and submits the job
 \item Polls for job completion with progress updates
 \item Retrieves results and integrates annotations into the Seurat object
 }
 
-Job details are stored in the returned Seurat object's \code{misc} slot for later
-retrieval with \code{\link[=GetResults]{GetResults()}}.
+The evidence columns of the results table (\code{justification},
+\code{supportingMarkers}, \code{conflictingMarkers}, \code{missingExpression} and
+\code{unexpectedExpression}) are filled from the structured output of current
+jobs when the stored fields are empty. \code{supportingMarkers} and
+\code{conflictingMarkers} list genes separated by \code{"; "}.
+
+While waiting, network errors are retried until \code{timeout_seconds} is
+reached. Other errors while checking the job stop the run after five in a
+row. When the results of a completed job cannot be fetched, the rate limit
+and server errors (HTTP 500, 502, 503 and 504) are retried in the same way,
+and other errors, such as a deleted report (HTTP 410), stop the run at once.
+These errors signal a \code{\link[=cytetype_api_error]{cytetype_api_error()}} condition. If the run stops or
+is interrupted, the job keeps running on the server: retrieve its results
+with \code{GetResults(job_id = "<job_id>")}, using the job ID printed when the job
+was submitted.
 }
 \examples{
 \dontrun{
@@ -109,7 +167,8 @@ annotated_seurat <- CyteTypeR(
     "GEO_Accession" = "GSE123456"
   ),
   timeout_seconds = 1800,
-  poll_interval_seconds = 60
+  poll_interval_seconds = 60,
+  visibility = "public"
 )
 }
 
