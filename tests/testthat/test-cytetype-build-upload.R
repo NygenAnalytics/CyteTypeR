@@ -222,3 +222,117 @@ test_that("completed workflow stores results that GetResults can return", {
     out@misc$cytetype_results
   )
 })
+
+test_that("visibility is validated and sent as a top-level body key", {
+  captured <- NULL
+  testthat::local_mocked_bindings(
+    .submit_job = function(payload, api_url, auth_token = NULL) {
+      captured <<- payload
+      "job1"
+    },
+    .poll_for_results = function(...) NULL,
+    .package = "CyteTypeR"
+  )
+  x <- .local_seurat_and_prepped(build_succeeded = FALSE)
+
+  out <- CyteTypeR::CyteTypeR(
+    x$obj, x$prepped_data,
+    api_url = "https://example.com",
+    auth_token = "test-token",
+    save_query = FALSE,
+    require_artifacts = FALSE,
+    visibility = "org"
+  )
+
+  expect_identical(captured$visibility, "org")
+  expect_false("visibility" %in% names(captured$input_data))
+  expect_identical(out@misc$cytetype_jobDetails$visibility, "org")
+  body <- jsonlite::fromJSON(
+    as.character(jsonlite::toJSON(captured, auto_unbox = TRUE, null = "null")),
+    simplifyVector = FALSE
+  )
+  expect_identical(body$visibility, "org")
+})
+
+test_that("visibility is omitted from the request by default", {
+  captured <- NULL
+  testthat::local_mocked_bindings(
+    .submit_job = function(payload, api_url, auth_token = NULL) {
+      captured <<- payload
+      "job1"
+    },
+    .poll_for_results = function(...) NULL,
+    .package = "CyteTypeR"
+  )
+  x <- .local_seurat_and_prepped(build_succeeded = FALSE)
+
+  out <- CyteTypeR::CyteTypeR(
+    x$obj, x$prepped_data,
+    api_url = "https://example.com",
+    auth_token = "test-token",
+    save_query = FALSE,
+    require_artifacts = FALSE
+  )
+
+  expect_false("visibility" %in% names(captured))
+  expect_false("visibility" %in% names(out@misc$cytetype_jobDetails))
+})
+
+test_that("an invalid visibility stops before uploads or submission", {
+  testthat::local_mocked_bindings(
+    .upload_obs_duckdb = function(...) stop("unexpected upload"),
+    .submit_job = function(...) stop("unexpected submission"),
+    .package = "CyteTypeR"
+  )
+  x <- .local_seurat_and_prepped(build_succeeded = TRUE)
+
+  for (visibility in list("shared", c("private", "org"), NA_character_, 1)) {
+    expect_error(
+      CyteTypeR::CyteTypeR(
+        x$obj, x$prepped_data,
+        api_url = "https://example.com",
+        auth_token = "test-token",
+        save_query = FALSE,
+        visibility = visibility
+      ),
+      "visibility must be"
+    )
+  }
+})
+
+test_that("visibility is the last argument of CyteTypeR()", {
+  formals_names <- names(formals(CyteTypeR::CyteTypeR))
+  expect_identical(formals_names[length(formals_names)], "visibility")
+  expect_null(formals(CyteTypeR::CyteTypeR)$visibility)
+})
+
+test_that("an interrupted run points to GetResults(job_id = ...)", {
+  testthat::local_mocked_bindings(
+    .submit_job = function(...) "job-77",
+    .poll_for_results = function(...) {
+      signalCondition(structure(
+        list(message = "", call = NULL),
+        class = c("interrupt", "condition")
+      ))
+      stop("not reached")
+    },
+    .package = "CyteTypeR"
+  )
+  x <- .local_seurat_and_prepped(build_succeeded = FALSE)
+
+  # The exiting handler stands in for R's top level, which ends the run.
+  expect_message(
+    outcome <- tryCatch(
+      CyteTypeR::CyteTypeR(
+        x$obj, x$prepped_data,
+        api_url = "https://example.com",
+        auth_token = "test-token",
+        save_query = FALSE,
+        require_artifacts = FALSE
+      ),
+      interrupt = function(cnd) "interrupted"
+    ),
+    'GetResults\\(job_id = "job-77"\\)'
+  )
+  expect_identical(outcome, "interrupted")
+})

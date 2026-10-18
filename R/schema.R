@@ -1,13 +1,16 @@
 # Valid LLM Provider Names
 LLM_PROVIDERS <- c("anthropic",
                    "bedrock",
+                   "deepseek",
                    "fireworks",
                    "google",
                    "groq",
                    "huggingface",
                    "mistral",
+                   "nebius",
                    "openai",
                    "openrouter",
+                   "together",
                    "vertex",
                    "xai"
 )

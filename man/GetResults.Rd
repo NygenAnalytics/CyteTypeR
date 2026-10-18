@@ -9,7 +9,8 @@ GetResults(
   job_id = NULL,
   results_prefix = "cytetype",
   auth_token = NULL,
-  api_url = NULL
+  api_url = NULL,
+  save_json = TRUE
 )
 }
 \arguments{
@@ -26,15 +27,66 @@ explicit token also requires a matching \code{api_url}.}
 \item{api_url}{Optional CyteType server origin for standalone or legacy job
 retrieval. When \code{NULL}, uses \code{CYTETYPE_API_URL} or
 \verb{https://cytetype.nygen.io}.}
+
+\item{save_json}{Logical. When the results are fetched by \code{job_id}, whether
+to save the server's response as \verb{cytetypeR_results_<job_id>.json} in the
+working directory. Default is \code{TRUE}.}
 }
 \value{
-Result list (annotations, summary, etc.), or transformed results when fetching by \code{job_id} only.
+Depends on where the results come from:
+\itemize{
+\item \code{GetResults(obj)} after a run with the default prefix: the
+data.frame in \code{obj@misc$cytetype_results} (see \code{\link[=CyteTypeR]{CyteTypeR()}}).
+\item Results stored under another prefix, or fetched for the job stored
+in \code{obj}: a list with \code{annotations} (one list per annotated cluster
+with \code{clusterId}, the CyteType cluster ID, \code{annotation},
+\code{ontologyTerm}, \code{ontologyTermID}, \code{granularAnnotation}, \code{cellState},
+\code{justification}, \code{supportingMarkers}, \code{conflictingMarkers},
+\code{missingExpression}, \code{unexpectedExpression}, \code{reviewerConfidence},
+\code{isHeterogeneous} and \code{heterogeneityType}), \code{raw_annotations} (the
+server's per-cluster results, unchanged) and the server's
+\code{studyContext}, \code{summary}, \code{semanticOrder}, \code{clusterCategories} and
+\code{displayLevel}.
+\item \code{GetResults(job_id = ...)}: a data.frame with the same columns as
+\code{obj@misc$cytetype_results}, where \code{clusterId} is the CyteType cluster
+ID. Its attributes \code{"job_id"} and \code{"result"} hold the job ID and the
+list described above.
+\item \code{NULL}, with a message, when the job has not finished yet or is
+not found.
+}
 }
 \description{
 If \code{obj} and \code{results_prefix} are given, tries to load from
 \code{obj@misc} first. If no local result exists but job details are
 available, fetches the result from the API.
-If only \code{job_id} is given, fetches from the API and returns (saves JSON).
+If only \code{job_id} is given, fetches the result from the API.
+}
+\details{
+Fetching asks the server for the job's status and, when the job has
+completed, for its results: two requests, without waiting. A failed job
+stops with an error. When the status or the results cannot be fetched,
+\code{GetResults()} signals a \code{\link[=cytetype_api_error]{cytetype_api_error()}} condition whose
+\code{error_code} holds the server's code when it sent one, such as
+\code{"REPORT_DELETED"}. Problems with the API key signal its subclass
+\code{cytetype_auth_error}.
+
+\code{reviewerConfidence} is \code{"High"}, \code{"Moderate"} or \code{"Low"} (\code{NULL} in the
+list and \code{NA} in the table when missing), \code{isHeterogeneous} is \code{TRUE} or
+\code{FALSE} (or missing), and \code{heterogeneityType} names the kind of
+heterogeneity the reviewer found. In the list, \code{supportingMarkers} and
+\code{conflictingMarkers} are lists of gene names.
+
+Fetched results are not added to \code{obj}; R does not modify the object you
+pass in.
+}
+\examples{
+\dontrun{
+# Results stored in the object by CyteTypeR()
+results <- GetResults(annotated_seurat)
+
+# Results of a job by its ID, without saving the JSON file
+results <- GetResults(job_id = "<JOB_ID>", save_json = FALSE)
+}
 }
 \seealso{
 \code{\link[=CyteTypeR]{CyteTypeR()}} for job submission

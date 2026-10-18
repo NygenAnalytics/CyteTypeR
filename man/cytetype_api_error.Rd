@@ -4,16 +4,42 @@
 \alias{cytetype_api_error}
 \title{Custom API Error}
 \usage{
-cytetype_api_error(message, call = NULL)
+cytetype_api_error(message, call = NULL, error_code = NULL)
 }
 \arguments{
-\item{message}{Error message}
+\item{message}{Error message.}
 
-\item{call}{Call that generated the error}
+\item{call}{Where the error came from: \code{"network"} when the server could not
+be reached, \code{"api"} for other errors. Default is \code{NULL}.}
+
+\item{error_code}{The error code the server sent, such as
+\code{"REPORT_DELETED"}, or \code{NULL} when there is none. Default is \code{NULL}.}
 }
 \value{
-An error object of class cytetype_api_error
+An error condition of class \code{cytetype_api_error}, with the elements
+\code{message}, \code{call} and \code{error_code}. Printing it shows
+\verb{CyteType API Error: <message>}.
 }
 \description{
-Custom API Error
+Creates the condition that CyteTypeR signals when the status or the results
+of a job cannot be fetched: by \code{\link[=GetResults]{GetResults()}}, and by \code{\link[=CyteTypeR]{CyteTypeR()}} when it
+stops waiting for a job after repeated errors. Errors about the API key are
+signalled as \code{cytetype_auth_error}, a subclass.
+}
+\examples{
+error <- cytetype_api_error(
+  paste(
+    "Error while checking job status: HTTP 410 [REPORT_DELETED]",
+    "This report has been deleted by the owner"
+  ),
+  call = "api",
+  error_code = "REPORT_DELETED"
+)
+print(error)
+
+# Handle the condition by its class and read the server's code.
+tryCatch(
+  stop(error),
+  cytetype_api_error = function(e) e$error_code
+)
 }

@@ -1,19 +1,30 @@
 Package: CyteTypeR
 Title: CyteType for R
-Version: 0.5.1
-Description: CyteTypeR is the R version of CyteType python package.
-Authors@R: 
-    person("Nygen Analytics AB", , ,"contact@nygen.io", role = c("aut", "cre"))
-License: MIT + file LICENSE
+Version: 0.6.0
+Authors@R:
+    person("Nygen Analytics AB", , , "contact@nygen.io", role = c("aut", "cre", "cph"))
+Description: R client for 'CyteType', an agentic, evidence-based cell type
+    annotation service for single-cell RNA sequencing data. It prepares a
+    clustered 'Seurat' object and its marker genes, writes the expression and
+    cell metadata files that are uploaded with a job, submits the job to the
+    'CyteType' API and adds the results to the object: a cell type label, a
+    Cell Ontology term, a cell state and the reviewer's confidence for every
+    cluster, together with the evidence behind each label. Every job also
+    produces an interactive report. Using the service requires an API key; the
+    documentation is at <https://docs.nygen.io/CyteType/>.
+License: BSD_3_clause + file LICENSE
+URL: https://docs.nygen.io/CyteType/, https://github.com/NygenAnalytics/CyteTypeR
+BugReports: https://github.com/NygenAnalytics/CyteTypeR/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Depends:
-  R (>= 4.1.0)
-Imports: 
+    R (>= 4.2.0)
+Imports:
     askpass,
     cli,
     crayon,
     dplyr,
+    duckdb,
     httpuv,
     httr2,
     jsonlite,
@@ -24,10 +35,11 @@ Imports:
     purrr,
     rhdf5,
     Seurat,
-    tibble,
-    tidyr
-Suggests: 
-    duckdb,
+    SeuratObject,
+    stats,
+    utils,
+    withr
+Suggests:
     future,
     furrr,
     knitr,
@@ -39,4 +51,4 @@ Remotes:
     bioc::rhdf5
 Config/testthat/edition: 3
 VignetteBuilder: knitr
-Config/roxygen2/version: 8.0.0
+Config/roxygen2/version: 8.1.0

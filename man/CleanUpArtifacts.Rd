@@ -9,6 +9,18 @@ CleanUpArtifacts(prepped_data)
 \arguments{
 \item{prepped_data}{Named list containing prepared data from \code{PrepareCyteTypeR()}.}
 }
+\value{
+Invisibly, \code{TRUE} when the artifact files had been built and are now
+removed, and \code{FALSE} when they were never built (nothing is deleted).
+}
 \description{
-Cleans up the artifact files after the run.
+Deletes the artifact files (\code{vars.h5} and \code{obs.duckdb}) that
+\code{\link[=PrepareCyteTypeR]{PrepareCyteTypeR()}} wrote, once \code{\link[=CyteTypeR]{CyteTypeR()}} has uploaded them.
+}
+\examples{
+\dontrun{
+prepped_data <- PrepareCyteTypeR(pbmc, pbmc.markers)
+pbmc <- CyteTypeR(pbmc, prepped_data, study_context = "Human PBMCs")
+CleanUpArtifacts(prepped_data)
+}
 }

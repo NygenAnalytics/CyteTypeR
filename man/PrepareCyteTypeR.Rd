@@ -21,16 +21,23 @@ PrepareCyteTypeR(
 )
 }
 \arguments{
-\item{obj}{A Seurat object with normalized data and clustering results.}
+\item{obj}{A Seurat object with normalized data and clustering results. It
+needs an assay named \code{"RNA"} with a normalized \code{data} layer.}
 
-\item{marker_table}{Data frame containing marker genes with columns:
-'cluster', 'gene', and 'avg_log2FC'. Output from Seurat's
-\code{FindAllMarkers()} function.}
+\item{marker_table}{Data frame containing marker genes with the columns
+\code{cluster}, \code{gene} and \code{avg_log2FC}, such as the output of Seurat's
+\code{FindAllMarkers()}. Its clusters must be exactly the clusters in
+\code{group_key}, each with at least five marker genes.}
 
 \item{group_key}{Character string specifying the metadata column containing
-cluster assignments. Default is "seurat_clusters".}
+cluster assignments. Every cell needs a cluster: \code{NA} values stop the
+preparation with an error. Default is \code{"seurat_clusters"}.}
 
-\item{gene_symbols}{Character string specifying the gene symbol field name. Default is 'gene_symbols'.}
+\item{gene_symbols}{Character string naming the column of the RNA assay's
+feature metadata that holds gene symbols. It is used only to check that
+the genes are symbols rather than database identifiers; when the column
+does not exist, the row names of the RNA assay are checked instead.
+Default is \code{"gene_symbols"}.}
 
 \item{n_top_genes}{Integer specifying the maximum number of top marker genes
 per cluster to include after ordering by \code{avg_log2FC}. Filter
@@ -50,8 +57,12 @@ exceeding this limit are silently skipped. Default is 500.}
 \item{pcent_batch_size}{Integer specifying batch size for expression percentage
 calculations. Default is 5000.}
 
-\item{coordinates_key}{Character string specifying which dimensional reduction
-to use for visualization coordinates (e.g., "umap", "tsne"). Default is "umap".}
+\item{coordinates_key}{Character string naming the dimensional reduction used
+for the report's visualization, such as \code{"umap"} or \code{"tsne"}. This
+reduction is tried first, then \code{"umap"}, \code{"tsne"} and \code{"pca"}, matched
+case-insensitively; the first one with a row for every cell and at least
+two dimensions is used. When none qualifies, the job runs without
+visualization. Default is \code{"umap"}.}
 
 \item{max_cells_per_group}{Integer specifying maximum cells per cluster for
 visualization subsampling. Default is 1000.}
@@ -63,39 +74,56 @@ generated vars.h5 artifact (feature expression). Default is \code{"vars.h5"}.}
 generated obs.duckdb artifact (cell metadata). Default is \code{"obs.duckdb"}.}
 }
 \value{
-Named list containing formatted data for CyteType analysis:
+A named list to pass to \code{\link[=CyteTypeR]{CyteTypeR()}}:
 \itemize{
-\item \code{clusterLabels}: List mapping numeric cluster IDs to original labels
+\item \code{clusterLabels}: List mapping the CyteType cluster IDs (\code{"1"},
+\code{"2"}, ...) to your cluster labels
 \item \code{clusterMetadata}: Aggregated metadata by cluster (if enabled)
 \item \code{markerGenes}: List of top marker genes per cluster
-\item \code{visualizationData}: Coordinates and cluster assignments for plotting
+\item \code{visualizationData}: Sampled coordinates and cluster assignments
+for plotting, or \code{NULL} when no coordinates were found
 \item \code{expressionData}: Expression percentages by cluster
 \item \code{group_key}: The metadata column name used for cluster assignments
 \item \code{build_succeeded}: Logical indicating whether artifact files were built successfully
 \item \code{vars_h5_path}: Path to the generated vars.h5 file
 \item \code{obs_duckdb_path}: Path to the generated obs.duckdb file
+\item \code{coordinates_key}: The name of the reduction whose coordinates
+were used for the visualization, or \code{NULL} when none was used
 }
 }
 \description{
 Prepares a Seurat object and a gene marker table for CyteType API by extracting and formatting
 cluster labels, metadata, marker genes, visualization coordinates, and
-expression data into the required data structure.
+expression data into the required data structure. It also writes the two
+files that \code{\link[=CyteTypeR]{CyteTypeR()}} uploads with the job: \code{vars.h5} (expression) and
+\code{obs.duckdb} (cell metadata and coordinates).
 }
 \details{
 The function performs the following steps:
 \enumerate{
-\item Validates the Seurat object structure
+\item Validates the Seurat object structure and the cluster labels
 \item Creates a mapping from original cluster labels to sequential numeric IDs
 \item Aggregates metadata across cells within clusters (optional)
 \item Filters and selects top marker genes per cluster
 \item Extracts dimensional reduction coordinates for visualization
 \item Calculates expression percentages across clusters
-\item Builds a vars.h5 artifact from the normalized expression matrix
+\item Builds a vars.h5 artifact from the normalized expression matrix, with
+the raw counts when they are whole numbers
 \item Builds an obs.duckdb artifact from the cell metadata
 }
 
-Clusters are renumbered sequentially (1, 2, 3, ...) to ensure consistent
-formatting regardless of original cluster naming.
+Clusters are renumbered sequentially (1, 2, 3, ...) in the sorted order of
+your labels (level order for a factor) to ensure consistent formatting
+regardless of original cluster naming.
+
+Expression always comes from the \code{"RNA"} assay, whatever the default assay
+is, and Seurat v5 layers split by sample are joined on a copy (your object is
+not changed). The gene names come from the same assay. When the default
+assay is not \code{"RNA"}, a warning says that \code{"RNA"} is used.
+
+Errors while building the two files are logged and recorded as
+\code{build_succeeded = FALSE}; \code{\link[=CyteTypeR]{CyteTypeR()}} then stops unless
+\code{require_artifacts = FALSE}.
 }
 \examples{
 \dontrun{
@@ -109,4 +137,8 @@ prepped_data <- PrepareCyteTypeR(
 )
 }
 
+}
+\seealso{
+\code{\link[=CyteTypeR]{CyteTypeR()}} to submit the job, \code{\link[=CleanUpArtifacts]{CleanUpArtifacts()}} to delete the
+files afterwards.
 }

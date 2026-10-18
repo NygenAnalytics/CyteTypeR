@@ -51,7 +51,10 @@
     login = paste(
       "Usage: cytetyper login [--api-url URL]",
       "",
-      "Securely prompt for, validate, and save an existing API key.",
+      "Prompt for, validate, and save an existing API key. The key is read",
+      "from standard input and hidden while you type on Linux and macOS (not",
+      "on Windows). It can also be piped in, for example:",
+      "printf '%s\\n' \"$CYTETYPE_API_KEY\" | cytetyper login",
       sep = "\n"
     ),
     logout = paste(

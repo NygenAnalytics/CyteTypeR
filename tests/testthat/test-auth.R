@@ -1090,3 +1090,21 @@ test_that("GetResults supports locally transformed result tables", {
 
   expect_identical(GetResults(obj), expected)
 })
+
+test_that("the dashboard opens at /dashboard without saved credentials", {
+  .with_temp_config_home({
+    opened <- character()
+    testthat::local_mocked_bindings(
+      .open_browser_silently = function(url) {
+        opened <<- c(opened, url)
+        TRUE
+      },
+      .package = "CyteTypeR"
+    )
+
+    target <- suppressMessages(OpenCyteTypeDashboard())
+
+    expect_identical(target, "https://cytetype.nygen.io/dashboard")
+    expect_identical(opened, "https://cytetype.nygen.io/dashboard")
+  })
+})

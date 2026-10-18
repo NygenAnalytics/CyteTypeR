@@ -220,7 +220,8 @@ test_that(".make_results_request returns 'failed' when results endpoint errors",
   )
   resp <- CyteTypeR:::.make_results_request("job1", "https://example.com")
   expect_identical(resp$status, "failed")
-  expect_true(grepl("results unavailable", resp$message))
+  expect_identical(resp$message, "Error while fetching job results: HTTP 409 error: job still processing")
+  expect_s3_class(resp$condition, "cytetype_api_error")
 })
 
 test_that(".make_results_request returns 'not_found' on 404 status", {
@@ -278,6 +279,7 @@ test_that("poll stops after consecutive 'error' statuses", {
            raw_response = NULL)
     },
     .sleep_with_spinner = function(...) invisible(NULL),
+    .sleep = function(...) invisible(NULL),
     .package = "CyteTypeR"
   )
   expect_error(
@@ -296,6 +298,7 @@ test_that("poll stops after consecutive 'not_found' statuses", {
            raw_response = NULL)
     },
     .sleep_with_spinner = function(...) invisible(NULL),
+    .sleep = function(...) invisible(NULL),
     .package = "CyteTypeR"
   )
   expect_error(
@@ -314,6 +317,7 @@ test_that("poll stops immediately on truly unknown status", {
            raw_response = NULL)
     },
     .sleep_with_spinner = function(...) invisible(NULL),
+    .sleep = function(...) invisible(NULL),
     .package = "CyteTypeR"
   )
   expect_error(
@@ -333,6 +337,7 @@ test_that("poll returns result on 'completed' status", {
            raw_response = list(clusterStatus = list("1" = "completed")))
     },
     .sleep_with_spinner = function(...) invisible(NULL),
+    .sleep = function(...) invisible(NULL),
     .package = "CyteTypeR"
   )
   result <- CyteTypeR:::.poll_for_results("job1", "https://example.com",
@@ -349,6 +354,7 @@ test_that("poll stops on 'failed' status with server message", {
            raw_response = list(clusterStatus = list()))
     },
     .sleep_with_spinner = function(...) invisible(NULL),
+    .sleep = function(...) invisible(NULL),
     .package = "CyteTypeR"
   )
   expect_error(
@@ -356,5 +362,207 @@ test_that("poll stops on 'failed' status with server message", {
                                    poll_interval = 0, timeout = 600,
                                    show_progress = FALSE),
     "Server error.*Job failed"
+  )
+})
+
+# --- timeout, retries and hints ---
+
+# A clock that advances `step` seconds on every call.
+fake_clock <- function(step) {
+  now <- as.POSIXct("2026-01-01 00:00:00", tz = "UTC")
+  function() {
+    current <- now
+    now <<- now + step
+    current
+  }
+}
+
+test_that("the polling timeout compares seconds, whatever the difftime units", {
+  # Each check advances two minutes. With automatic difftime units, 0.5.1 read
+  # this as 2, 4, 6, ... "minutes" and never reached a 600 second timeout.
+  calls <- 0L
+  testthat::local_mocked_bindings(
+    .make_results_request = function(...) {
+      calls <<- calls + 1L
+      if (calls > 50L) stop("the timeout never fired")
+      list(status = "processing", result = NULL, message = "Job is processing",
+           raw_response = list(clusterStatus = list()))
+    },
+    .now = fake_clock(120),
+    .sleep = function(...) invisible(NULL),
+    .sleep_with_spinner = function(...) invisible(NULL),
+    .package = "CyteTypeR"
+  )
+
+  error <- tryCatch(
+    CyteTypeR:::.poll_for_results("job1", "https://example.com",
+                                   poll_interval = 0, timeout = 600,
+                                   show_progress = FALSE),
+    error = identity
+  )
+
+  expect_s3_class(error, "cytetype_timeout_error")
+  expect_identical(error$job_id, "job1")
+  expect_match(conditionMessage(error), "Job job1 did not finish within 600 seconds")
+  expect_match(conditionMessage(error), 'GetResults(job_id = "job1")', fixed = TRUE)
+  expect_false(grepl("timeoutTimeout", conditionMessage(error)))
+  expect_lt(calls, 10L)
+})
+
+test_that("network errors are retried until the timeout", {
+  calls <- 0L
+  testthat::local_mocked_bindings(
+    .make_results_request = function(...) {
+      calls <<- calls + 1L
+      if (calls <= 8L) {
+        return(list(status = "error", result = NULL,
+                    message = "Error checking job status: Could not connect to server",
+                    raw_response = NULL, error_type = "network"))
+      }
+      list(status = "completed", result = list(annotations = list()),
+           message = "Job completed successfully", raw_response = list(clusterStatus = list()))
+    },
+    .sleep = function(...) invisible(NULL),
+    .sleep_with_spinner = function(...) invisible(NULL),
+    .package = "CyteTypeR"
+  )
+
+  result <- CyteTypeR:::.poll_for_results("job1", "https://example.com",
+                                           poll_interval = 0, timeout = 600,
+                                           show_progress = FALSE)
+
+  expect_identical(result, list(annotations = list()))
+  expect_identical(calls, 9L)
+})
+
+test_that("other errors stop after five in a row with a GetResults hint", {
+  testthat::local_mocked_bindings(
+    .make_results_request = function(...) {
+      list(status = "error", result = NULL,
+           message = "Error checking job status: HTTP 500 [INTERNAL_ERROR] boom",
+           raw_response = NULL, error_type = "api")
+    },
+    .sleep = function(...) invisible(NULL),
+    .sleep_with_spinner = function(...) invisible(NULL),
+    .package = "CyteTypeR"
+  )
+
+  expect_error(
+    CyteTypeR:::.poll_for_results("job1", "https://example.com",
+                                   poll_interval = 0, timeout = 600,
+                                   show_progress = FALSE),
+    'Stopping after 5 consecutive errors.*GetResults\\(job_id = "job1"\\)'
+  )
+})
+
+test_that(".make_results_request marks connection failures as network errors", {
+  testthat::local_mocked_bindings(
+    .api_response_helper = function(...) {
+      stop(cytetype_api_error("Error while checking job status: Could not connect", call = "network"))
+    },
+    .package = "CyteTypeR"
+  )
+
+  response <- CyteTypeR:::.make_results_request("job1", "https://example.com")
+
+  expect_identical(response$status, "error")
+  expect_identical(response$error_type, "network")
+})
+
+test_that(".make_results_request reports HTTP 202 results as processing", {
+  testthat::local_mocked_bindings(
+    .api_response_helper = function(job_id, api_url, req_item, auth_token = NULL) {
+      if (req_item == "status") {
+        return(list(status_code = 200L, data = list(jobStatus = "completed")))
+      }
+      list(status_code = 202L, data = list(detail = list(error_code = "JOB_PROCESSING")))
+    },
+    .package = "CyteTypeR"
+  )
+
+  response <- CyteTypeR:::.make_results_request("job1", "https://example.com")
+
+  expect_identical(response$status, "processing")
+})
+
+test_that("the hint printed while polling names the job ID", {
+  testthat::local_mocked_bindings(
+    .make_results_request = function(...) {
+      list(status = "completed", result = list(annotations = list()),
+           message = "Job completed successfully", raw_response = list(clusterStatus = list()))
+    },
+    .sleep = function(...) invisible(NULL),
+    .package = "CyteTypeR"
+  )
+
+  output <- capture.output(
+    result <- CyteTypeR:::.poll_for_results("job-42", "https://example.com",
+                                   poll_interval = 0, timeout = 600,
+                                   show_progress = FALSE),
+    type = "message"
+  )
+
+  expect_true(any(grepl('GetResults(job_id = "job-42")', output, fixed = TRUE)))
+})
+
+test_that("repeated status errors stop the wait with a cytetype_api_error", {
+  testthat::local_mocked_bindings(
+    .make_results_request = function(...) {
+      condition <- cytetype_api_error(
+        "Error while checking job status: HTTP 503 [HTTP_ERROR] Service unavailable",
+        call = "api",
+        error_code = "HTTP_ERROR"
+      )
+      list(status = "error", result = NULL, message = conditionMessage(condition),
+           raw_response = NULL, error_type = "api", condition = condition)
+    },
+    .sleep = function(...) invisible(NULL),
+    .sleep_with_spinner = function(...) invisible(NULL),
+    .package = "CyteTypeR"
+  )
+
+  error <- tryCatch(
+    CyteTypeR:::.poll_for_results("job1", "https://example.com",
+                                   poll_interval = 0, timeout = 600,
+                                   show_progress = FALSE),
+    error = identity
+  )
+
+  expect_s3_class(error, "cytetype_api_error")
+  expect_identical(error$error_code, "HTTP_ERROR")
+  expect_match(conditionMessage(error), "^Stopping after 5 consecutive errors: Error while checking job status: HTTP 503")
+  # The context appears once.
+  expect_identical(lengths(regmatches(conditionMessage(error), gregexpr("Error while checking job status", conditionMessage(error)))), 1L)
+})
+
+test_that("a results fetch failure stops the wait with the cytetype_api_error", {
+  testthat::local_mocked_bindings(
+    .api_response_helper = function(job_id, api_url, req_item, auth_token = NULL) {
+      if (req_item == "status") {
+        return(list(status_code = 200L, data = list(jobStatus = "completed", clusterStatus = list())))
+      }
+      stop(cytetype_api_error(
+        "Error while fetching job results: HTTP 410 [REPORT_DELETED] This report has been deleted by the owner",
+        call = "api",
+        error_code = "REPORT_DELETED"
+      ))
+    },
+    .sleep = function(...) invisible(NULL),
+    .sleep_with_spinner = function(...) invisible(NULL),
+    .package = "CyteTypeR"
+  )
+
+  error <- tryCatch(
+    CyteTypeR:::.poll_for_results("job1", "https://example.com",
+                                   poll_interval = 0, timeout = 600,
+                                   show_progress = FALSE),
+    error = identity
+  )
+
+  expect_s3_class(error, "cytetype_api_error")
+  expect_identical(error$error_code, "REPORT_DELETED")
+  expect_identical(
+    conditionMessage(error),
+    "Error while fetching job results: HTTP 410 [REPORT_DELETED] This report has been deleted by the owner"
   )
 })

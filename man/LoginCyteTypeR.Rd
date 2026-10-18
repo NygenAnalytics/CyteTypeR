@@ -7,7 +7,11 @@
 LoginCyteTypeR(api_token = NULL, api_url = NULL)
 }
 \arguments{
-\item{api_token}{Optional API key. When omitted, a hidden prompt is shown.}
+\item{api_token}{Optional API key. When omitted, a hidden prompt is shown
+in an interactive session. Otherwise the key is read from the first line
+of standard input, so \verb{cytetyper login} and scripts can pipe it in. Typed
+into a terminal, the key is hidden on Linux and macOS but shown on
+Windows.}
 
 \item{api_url}{Optional CyteType server origin. When \code{NULL}, uses
 \code{CYTETYPE_API_URL} or \verb{https://cytetype.nygen.io}.}

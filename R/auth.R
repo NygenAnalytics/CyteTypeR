@@ -867,6 +867,68 @@
   result$value
 }
 
+.is_interactive <- function() {
+  interactive()
+}
+
+# First line of the process's standard input (not R's console), or
+# character(0) at the end of input.
+.read_stdin_line <- function() {
+  con <- file("stdin")
+  on.exit(close(con), add = TRUE)
+  readLines(con, n = 1L, warn = FALSE)
+}
+
+.stdin_is_terminal <- function() {
+  if (!identical(.Platform$OS.type, "unix")) {
+    return(FALSE)
+  }
+  status <- suppressWarnings(system(
+    "test -t 0",
+    ignore.stdout = TRUE,
+    ignore.stderr = TRUE
+  ))
+  identical(as.integer(status), 0L)
+}
+
+.set_terminal_echo <- function(enabled) {
+  status <- suppressWarnings(system(
+    if (enabled) "stty echo" else "stty -echo",
+    ignore.stdout = TRUE,
+    ignore.stderr = TRUE
+  ))
+  identical(as.integer(status), 0L)
+}
+
+# Read an API key. Rscript, and so the cytetyper command, is not interactive,
+# where askpass returns NULL: read the key from standard input instead. When
+# the input is a terminal, `stty` hides the key on Linux and macOS; Windows has
+# no `stty`, so the key is shown there.
+.prompt_api_key <- function(prompt = "API key: ") {
+  if (.is_interactive()) {
+    return(askpass::askpass(prompt))
+  }
+  cat(prompt, file = stderr())
+  terminal <- .stdin_is_terminal()
+  echo_disabled <- terminal && .set_terminal_echo(FALSE)
+  on.exit(
+    {
+      if (echo_disabled) {
+        .set_terminal_echo(TRUE)
+      }
+      if (echo_disabled || !terminal) {
+        cat("\n", file = stderr())
+      }
+    },
+    add = TRUE
+  )
+  line <- .read_stdin_line()
+  if (length(line) == 0L || is.na(line[[1L]])) {
+    return(NULL)
+  }
+  line[[1L]]
+}
+
 #' Set up CyteType authentication
 #'
 #' Validates matching saved credentials. When none are available, opens
@@ -964,7 +1026,11 @@ SetupCyteTypeR <- function(api_url = NULL, force = FALSE) {
 #'
 #' Validates an API key and stores it for later CyteTypeR requests.
 #'
-#' @param api_token Optional API key. When omitted, a hidden prompt is shown.
+#' @param api_token Optional API key. When omitted, a hidden prompt is shown
+#'   in an interactive session. Otherwise the key is read from the first line
+#'   of standard input, so `cytetyper login` and scripts can pipe it in. Typed
+#'   into a terminal, the key is hidden on Linux and macOS but shown on
+#'   Windows.
 #' @param api_url Optional CyteType server origin. When `NULL`, uses
 #'   `CYTETYPE_API_URL` or `https://cytetype.nygen.io`.
 #' @return The saved credential metadata, invisibly.
@@ -977,7 +1043,7 @@ SetupCyteTypeR <- function(api_url = NULL, force = FALSE) {
 LoginCyteTypeR <- function(api_token = NULL, api_url = NULL) {
   api_url <- .resolve_api_url(api_url)
   if (is.null(api_token)) {
-    api_token <- askpass::askpass("API key: ")
+    api_token <- .prompt_api_key("API key: ")
   }
   if (!.is_scalar_string(api_token) || !nzchar(trimws(api_token))) {
     stop("API key is required", call. = FALSE)
@@ -1045,7 +1111,8 @@ LogoutCyteTypeR <- function() {
 #' @return The dashboard URL, invisibly.
 #' @details
 #' Uses the dashboard associated with saved credentials. When credentials are
-#' absent, opens the production dashboard at `https://cytetype.nygen.io`.
+#' absent, opens the production dashboard at
+#' `https://cytetype.nygen.io/dashboard`.
 #' @examples
 #' \dontrun{
 #' OpenCyteTypeDashboard()

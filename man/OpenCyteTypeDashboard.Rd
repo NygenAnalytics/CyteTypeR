@@ -14,7 +14,8 @@ Open the CyteType dashboard
 }
 \details{
 Uses the dashboard associated with saved credentials. When credentials are
-absent, opens the production dashboard at \verb{https://cytetype.nygen.io}.
+absent, opens the production dashboard at
+\verb{https://cytetype.nygen.io/dashboard}.
 }
 \examples{
 \dontrun{

@@ -5,9 +5,9 @@
   <a href="https://github.com/NygenAnalytics/CyteTypeR/actions/workflows/R-CMD-check.yaml">
     <img src="https://github.com/NygenAnalytics/CyteTypeR/actions/workflows/R-CMD-check.yaml/badge.svg" alt="R-CMD-check">
   </a>
-  <img src="https://img.shields.io/badge/R-%E2%89%A5%204.1.0-blue.svg" alt="R Version">
+  <img src="https://img.shields.io/badge/R-%E2%89%A5%204.2.0-blue.svg" alt="R Version">
   <a href="LICENSE.md">
-    <img src="https://img.shields.io/badge/License-MIT-lightgrey.svg" alt="License: MIT">
+    <img src="https://img.shields.io/badge/License-BSD%203--Clause-blue.svg" alt="License: BSD 3-Clause">
   </a>
 </p>
 
@@ -18,7 +18,7 @@ For AnnData workflows, use [CyteType](https://github.com/NygenAnalytics/CyteType
 > [!IMPORTANT]
 > Already installed CyteTypeR? Open R and run `devtools::install_github("NygenAnalytics/CyteTypeR", force = TRUE)` to update to the latest version before you start.
 >
-> CyteType requires an API key. API use is free for academic and non-commercial research. Commercial API use requires a [license](#license).
+> CyteType requires an API key. Use is free for academic and non-commercial research. Commercial use requires a [license](#license).
 
 ## Why CyteTypeR?
 
@@ -32,6 +32,8 @@ Manual cell type annotation takes weeks and varies between experts. CyteTypeR de
 install.packages("devtools")
 devtools::install_github("NygenAnalytics/CyteTypeR")
 ```
+
+CyteTypeR needs R 4.2 or newer. See [Installation](https://docs.nygen.io/CyteType/getting-started/installation/) for the dependencies and for updating.
 
 ### 2. Set up your API key
 
@@ -48,6 +50,8 @@ Already have an API key? Save and validate it locally once:
 LoginCyteTypeR()
 ```
 
+See [Sign in and API keys](https://docs.nygen.io/CyteType/getting-started/sign-in/) for remote servers and automation.
+
 ### 2.1. (Optional) Install and use the CLI
 
 Install the `cytetyper` command into the active R environment:
@@ -60,10 +64,13 @@ Then authenticate directly from the terminal:
 
 ```sh
 cytetyper setup
+cytetyper login        # save an existing key; it can also be piped in
 cytetyper dashboard
 cytetyper view <JOB_ID>
 cytetyper logout
 ```
+
+See the [command-line reference](https://docs.nygen.io/CyteType/reference/cli/).
 
 ### 3. Annotate with Seurat
 
@@ -90,7 +97,9 @@ annotated_seurat <- CyteTypeR(
 )
 ```
 
-[Read the complete Seurat workflow](docs/get-started.md).
+Every cell gets its cluster's label, Cell Ontology term, cell state and reviewer confidence as columns of `annotated_seurat@meta.data`, and `annotated_seurat@misc$cytetype_results` has one row per cluster with the evidence behind each label.
+
+[Read the complete Seurat workflow](https://docs.nygen.io/CyteType/getting-started/quickstart-r/).
 
 
 ## What You Get
@@ -122,8 +131,13 @@ Methods and full results are in the [preprint](https://www.biorxiv.org/content/1
 
 ## Resources
 
-- 📖 [Get Started](docs/get-started.md): Prepare a Seurat object and run an annotation.
-- ⚙️ [Configuration](docs/configurations.md): Configure API access, LLM providers, and runtime settings.
+- 📖 [Documentation](https://docs.nygen.io/CyteType/): Guides and references for the R and Python clients.
+- 🚀 [Quickstart (R)](https://docs.nygen.io/CyteType/getting-started/quickstart-r/): Prepare a Seurat object and run an annotation.
+- 🧪 [Prepare your data](https://docs.nygen.io/CyteType/guides/prepare-data/): What CyteTypeR needs from your Seurat object and marker table.
+- ⚙️ [Run, monitor and rerun jobs](https://docs.nygen.io/CyteType/guides/running-jobs/) and [use your own LLM](https://docs.nygen.io/CyteType/guides/llm-configuration/): Runtime settings and LLM providers.
+- 📋 [Results in AnnData and Seurat](https://docs.nygen.io/CyteType/results/results-in-your-data/): The columns and tables CyteTypeR adds to your object.
+- 📚 [R function reference](https://docs.nygen.io/CyteType/reference/r-api/): Every exported function and its arguments.
+- 🛠️ [Troubleshooting](https://docs.nygen.io/CyteType/support/troubleshooting/): Fixes for sign-in, data preparation, upload and job problems.
 - 🧬 [Example Datasets and Reports](docs/examples.md): Browse atlas-scale analyses.
 - 🐍 [Python client](https://github.com/NygenAnalytics/CyteType): Use CyteType with AnnData and Scanpy.
 - 🎥 [Introduction video](https://vimeo.com/nygen/cytetype): Watch a quick overview of CyteType.
@@ -146,6 +160,13 @@ Methods and full results are in the [preprint](https://www.biorxiv.org/content/1
 
 ## License
 
-CyteTypeR package code is available under the [MIT License](LICENSE.md).
+The CyteTypeR package is open source software released under the [BSD 3-Clause License](LICENSE.md) and maintained by [Nygen](https://nygen.io).
 
-CyteType API access is free for academic and non-commercial research. Commercial API use and higher-rate access require a separate license from Nygen Analytics AB. Contact [contact@nygen.io](mailto:contact@nygen.io).
+### CyteType service terms
+
+Annotation runs on the CyteType service, which requires an API key.
+
+- **Academic and non-commercial use** is free within the [usage limits](https://docs.nygen.io/CyteType/platform/limits/). Data generated under academic use is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+- **Commercial use and higher limits** require a commercial license from Nygen Analytics AB, which includes commercial rights to the generated data.
+
+For licensing, contact [contact@nygen.io](mailto:contact@nygen.io).

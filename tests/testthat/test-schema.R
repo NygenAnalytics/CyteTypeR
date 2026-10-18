@@ -88,3 +88,27 @@ test_that(".prepare_query_for_json preserves uploaded_files", {
   out <- CyteTypeR:::.prepare_query_for_json(query_list)
   expect_identical(out$uploaded_files, list(obs_duckdb = "id1", vars_h5 = "id2"))
 })
+
+test_that("LLMModelConfig accepts the deepseek, nebius and together providers", {
+  for (provider in c("deepseek", "nebius", "together")) {
+    cfg <- CyteTypeR:::LLMModelConfig(provider = provider, name = "model", apiKey = "k")
+    expect_identical(cfg$provider, provider)
+  }
+})
+
+test_that("the provider list matches the Python SDK", {
+  expect_identical(
+    CyteTypeR:::LLM_PROVIDERS,
+    c(
+      "anthropic", "bedrock", "deepseek", "fireworks", "google", "groq",
+      "huggingface", "mistral", "nebius", "openai", "openrouter", "together",
+      "vertex", "xai"
+    )
+  )
+})
+
+test_that(".prepare_query_for_json keeps a top-level visibility", {
+  input_data <- list(studyInfo = "x", infoTags = list(), clusterLabels = list(), clusterMetadata = list(), markerGenes = list(), visualizationData = NULL, expressionData = list(), nParallelClusters = 2L)
+  out <- CyteTypeR:::.prepare_query_for_json(list(input_data = input_data, llm_configs = NULL, visibility = "public"))
+  expect_identical(out$visibility, "public")
+})
