@@ -4,7 +4,7 @@
 \alias{cytetype_api_error}
 \title{Custom API Error}
 \usage{
-cytetype_api_error(message, call = NULL, error_code = NULL)
+cytetype_api_error(message, call = NULL, error_code = NULL, status_code = NULL)
 }
 \arguments{
 \item{message}{Error message.}
@@ -14,16 +14,20 @@ be reached, \code{"api"} for other errors. Default is \code{NULL}.}
 
 \item{error_code}{The error code the server sent, such as
 \code{"REPORT_DELETED"}, or \code{NULL} when there is none. Default is \code{NULL}.}
+
+\item{status_code}{The HTTP status of the server's response, such as \code{503},
+or \code{NULL} when there is none, for example when the server could not be
+reached. Default is \code{NULL}.}
 }
 \value{
 An error condition of class \code{cytetype_api_error}, with the elements
-\code{message}, \code{call} and \code{error_code}. Printing it shows
+\code{message}, \code{call}, \code{error_code} and \code{status_code}. Printing it shows
 \verb{CyteType API Error: <message>}.
 }
 \description{
 Creates the condition that CyteTypeR signals when the status or the results
 of a job cannot be fetched: by \code{\link[=GetResults]{GetResults()}}, and by \code{\link[=CyteTypeR]{CyteTypeR()}} when it
-stops waiting for a job after repeated errors. Errors about the API key are
+stops waiting for a job because of such errors. Errors about the API key are
 signalled as \code{cytetype_auth_error}, a subclass.
 }
 \examples{
@@ -33,7 +37,8 @@ error <- cytetype_api_error(
     "This report has been deleted by the owner"
   ),
   call = "api",
-  error_code = "REPORT_DELETED"
+  error_code = "REPORT_DELETED",
+  status_code = 410L
 )
 print(error)
 

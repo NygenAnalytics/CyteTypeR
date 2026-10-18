@@ -59,11 +59,12 @@
 * When the status or the results of a job cannot be fetched, `GetResults()`
   signals a `cytetype_api_error` with one message, such as "Error while
   checking job status: HTTP 410 [REPORT_DELETED] This report has been deleted
-  by the owner", and the server's code in `error_code`. 0.5.1 raised a plain
-  error for jobs stored in the object. `cytetype_api_error()` gains the
-  `error_code` argument, and these conditions print as `Error: <message>`
-  instead of `Error in "api" : <message>`. Problems with the API key still
-  signal `cytetype_auth_error`.
+  by the owner", the server's code in `error_code` and the HTTP status in
+  `status_code`. 0.5.1 raised a plain error for jobs stored in the object.
+  `cytetype_api_error()` gains the `error_code` and `status_code` arguments,
+  and these conditions print as `Error: <message>` instead of
+  `Error in "api" : <message>`. Problems with the API key still signal
+  `cytetype_auth_error`.
 
 ## Running jobs
 
@@ -77,9 +78,11 @@
 * While waiting, network errors (no response from the server) are retried
   until `timeout_seconds` is reached, as in the Python client. Other errors
   still stop the run after five in a row, now with a `cytetype_api_error`
-  whose message says how to fetch the results later. An error while fetching
-  the results of a completed job also stops the run with a
-  `cytetype_api_error`.
+  whose message says how to fetch the results later. When the results of a
+  completed job cannot be fetched, the rate limit and server errors (HTTP
+  500, 502, 503 and 504) are retried in the same way; 0.5.1 stopped at once.
+  Other errors while fetching the results, such as a deleted report (HTTP
+  410), still stop the run at once, now with a `cytetype_api_error`.
 * The hint printed when a job is submitted, and the message printed when a run
   is interrupted, show `GetResults(job_id = "<job_id>")`. The earlier
   `GetResults()` hint could not work, because an interrupted run does not
@@ -87,6 +90,10 @@
 * New `visibility` argument of `CyteTypeR()`: `"private"`, `"org"` or
   `"public"`, sent as the request's top-level `visibility` and stored in the
   job details. The default, `NULL`, uses the server default (`"private"`).
+  `"org"` needs an organization API key. When the key looks like a personal
+  key (it starts with `cyt_p_`), `CyteTypeR()` logs a warning before uploading
+  the files and continues; the server checks the key when the job is
+  submitted and rejects personal keys.
 * `llm_configs` accepts the `deepseek`, `nebius` and `together` providers.
 * The rate-limit message no longer says that your own LLM API key bypasses the
   free-tier limits. The limits apply to every job, including jobs that use

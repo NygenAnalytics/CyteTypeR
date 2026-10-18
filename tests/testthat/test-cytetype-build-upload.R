@@ -300,6 +300,115 @@ test_that("an invalid visibility stops before uploads or submission", {
   }
 })
 
+ORG_VISIBILITY_WARNING <- paste0(
+  'visibility = "org" needs an organization API key, and this key looks like ',
+  'a personal key (cyt_p_...). If it is, the server rejects the job after the ',
+  'upload. Use an organization key, or choose "private" or "public".'
+)
+
+# Uploads and submission that record what reached them.
+.local_recorded_job <- function(env = parent.frame()) {
+  calls <- new.env()
+  calls$uploads <- character()
+  calls$payload <- NULL
+  testthat::local_mocked_bindings(
+    .upload_obs_duckdb = function(...) {
+      calls$uploads <- c(calls$uploads, "obs_duckdb")
+      list(upload_id = "obs-1")
+    },
+    .upload_vars_h5 = function(...) {
+      calls$uploads <- c(calls$uploads, "vars_h5")
+      list(upload_id = "vars-1")
+    },
+    .submit_job = function(payload, api_url, auth_token = NULL) {
+      calls$payload <- payload
+      "job1"
+    },
+    .poll_for_results = function(...) NULL,
+    .package = "CyteTypeR",
+    .env = env
+  )
+  calls
+}
+
+# Run CyteTypeR() with the uploads of the prepared files; return the object
+# and the lines it logged to the console.
+.run_with_uploads <- function(...) {
+  x <- .local_seurat_and_prepped(build_succeeded = TRUE)
+  out <- NULL
+  log <- capture.output(
+    out <- CyteTypeR::CyteTypeR(
+      x$obj, x$prepped_data,
+      api_url = "https://example.com",
+      save_query = FALSE,
+      ...
+    ),
+    type = "message"
+  )
+  list(out = out, log = log)
+}
+
+.org_warnings <- function(log) which(grepl(ORG_VISIBILITY_WARNING, log, fixed = TRUE))
+
+test_that("org visibility with a personal-looking key warns once and continues", {
+  saved_credentials <- list(
+    apiUrl = "https://example.com",
+    dashboardUrl = "https://example.com/dashboard",
+    apiToken = "cyt_p_saved-secret",
+    tokenId = "token-id",
+    userId = "user-id",
+    email = "researcher@example.com"
+  )
+  testthat::local_mocked_bindings(
+    .load_credentials = function(api_url = NULL) saved_credentials,
+    .package = "CyteTypeR"
+  )
+
+  # An explicit key, and a key saved by SetupCyteTypeR() or LoginCyteTypeR().
+  for (auth_token in list("cyt_p_explicit-secret", NULL)) {
+    label <- if (is.null(auth_token)) "saved key" else "explicit key"
+    calls <- .local_recorded_job()
+
+    run <- .run_with_uploads(auth_token = auth_token, visibility = "org")
+
+    warned <- .org_warnings(run$log)
+    expect_length(warned, 1L)
+    expect_match(run$log[warned], "^WARN ", info = label)
+    # Logged before the upload starts.
+    uploading <- which(grepl("Uploading obs.duckdb", run$log, fixed = TRUE))
+    expect_true(length(uploading) == 1L && warned < uploading, info = label)
+    expect_false(any(grepl("secret", run$log, fixed = TRUE)), info = label)
+    # The run continues.
+    expect_s4_class(run$out, "Seurat")
+    expect_identical(calls$uploads, c("obs_duckdb", "vars_h5"), info = label)
+    expect_identical(calls$payload$visibility, "org", info = label)
+  }
+})
+
+test_that("org visibility with an organization key does not warn", {
+  calls <- .local_recorded_job()
+
+  run <- .run_with_uploads(auth_token = "cyt_organization-secret", visibility = "org")
+
+  expect_length(.org_warnings(run$log), 0L)
+  expect_s4_class(run$out, "Seurat")
+  expect_identical(calls$uploads, c("obs_duckdb", "vars_h5"))
+  expect_identical(calls$payload$visibility, "org")
+})
+
+test_that("private, public and the default visibility do not warn", {
+  for (visibility in list("private", "public", NULL)) {
+    label <- if (is.null(visibility)) "NULL" else visibility
+    calls <- .local_recorded_job()
+
+    run <- .run_with_uploads(auth_token = "cyt_p_personal-secret", visibility = visibility)
+
+    expect_length(.org_warnings(run$log), 0L)
+    expect_identical(calls$uploads, c("obs_duckdb", "vars_h5"), info = label)
+    expect_identical(calls$payload$visibility, visibility, info = label)
+  }
+})
+
 test_that("visibility is the last argument of CyteTypeR()", {
   formals_names <- names(formals(CyteTypeR::CyteTypeR))
   expect_identical(formals_names[length(formals_names)], "visibility")

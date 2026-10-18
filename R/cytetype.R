@@ -296,6 +296,31 @@ PrepareCyteTypeR <- function(obj,
   invisible(visibility)
 }
 
+# The server gives API keys of users without an organization license the
+# prefix "cyt_p_" (organization keys get "cyt_") and refuses "org" visibility
+# for them when the job is submitted, after the upload. The prefix only
+# suggests a personal key: an organization key's random part can begin with
+# "p_". So warn before uploading, and leave the decision to the server.
+.PERSONAL_API_KEY_PREFIX <- "cyt_p_"
+
+.warn_org_visibility_key <- function(visibility, auth_token) {
+  if (
+    identical(visibility, "org") &&
+      .is_string(auth_token) &&
+      startsWith(auth_token, .PERSONAL_API_KEY_PREFIX)
+  ) {
+    # Logged at once, before the upload starts (a warning() would only be
+    # shown when CyteTypeR() returns). Name the kind of key, never the key.
+    log_warn(paste0(
+      "visibility = \"org\" needs an organization API key, and this key looks ",
+      "like a personal key (cyt_p_...). If it is, the server rejects the job ",
+      "after the upload. Use an organization key, or choose \"private\" or ",
+      "\"public\"."
+    ))
+  }
+  invisible(NULL)
+}
+
 .results_hint <- function(job_id) {
   paste0("GetResults(job_id = \"", job_id, "\")")
 }
@@ -382,7 +407,10 @@ PrepareCyteTypeR <- function(obj,
 #' @param visibility Optional character. Who can view the report: `"private"`,
 #'   `"org"` (your organization; needs an organization API key) or `"public"`
 #'   (anyone with the link). Default is `NULL`, which uses the server default
-#'   (`"private"`).
+#'   (`"private"`). With `"org"` and an API key that looks like a personal key
+#'   (it starts with `cyt_p_`), a warning is logged before the files are
+#'   uploaded and the run continues; the server checks the key when the job is
+#'   submitted and rejects personal keys.
 #'
 #' @return The Seurat object `obj` with the results added. Assign it, for
 #'   example `obj <- CyteTypeR(obj, prepped_data)`; the object you pass in is
@@ -426,11 +454,13 @@ PrepareCyteTypeR <- function(obj,
 #'
 #' While waiting, network errors are retried until `timeout_seconds` is
 #' reached. Other errors while checking the job stop the run after five in a
-#' row, and an error while fetching the results of a completed job stops it at
-#' once; both signal a [cytetype_api_error()] condition. If the run stops or is
-#' interrupted, the job keeps running on the server: retrieve its results with
-#' `GetResults(job_id = "<job_id>")`, using the job ID printed when the job was
-#' submitted.
+#' row. When the results of a completed job cannot be fetched, the rate limit
+#' and server errors (HTTP 500, 502, 503 and 504) are retried in the same way,
+#' and other errors, such as a deleted report (HTTP 410), stop the run at once.
+#' These errors signal a [cytetype_api_error()] condition. If the run stops or
+#' is interrupted, the job keeps running on the server: retrieve its results
+#' with `GetResults(job_id = "<job_id>")`, using the job ID printed when the job
+#' was submitted.
 #'
 #' @examples
 #' \dontrun{
@@ -514,6 +544,7 @@ CyteTypeR <- function(obj,
 
   .validate_input_data(prepped_data)
   auth_token <- .resolve_auth_token(api_url, auth_token)
+  .warn_org_visibility_key(visibility, auth_token)
 
   if (!is.null(llm_configs) && length(llm_configs) > 0L) {
     if (is.null(names(llm_configs)) && is.list(llm_configs[[1]])) {

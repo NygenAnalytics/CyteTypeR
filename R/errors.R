@@ -3,7 +3,7 @@
 #' @description
 #' Creates the condition that CyteTypeR signals when the status or the results
 #' of a job cannot be fetched: by [GetResults()], and by [CyteTypeR()] when it
-#' stops waiting for a job after repeated errors. Errors about the API key are
+#' stops waiting for a job because of such errors. Errors about the API key are
 #' signalled as `cytetype_auth_error`, a subclass.
 #'
 #' @param message Error message.
@@ -11,8 +11,11 @@
 #'   be reached, `"api"` for other errors. Default is `NULL`.
 #' @param error_code The error code the server sent, such as
 #'   `"REPORT_DELETED"`, or `NULL` when there is none. Default is `NULL`.
+#' @param status_code The HTTP status of the server's response, such as `503`,
+#'   or `NULL` when there is none, for example when the server could not be
+#'   reached. Default is `NULL`.
 #' @return An error condition of class `cytetype_api_error`, with the elements
-#'   `message`, `call` and `error_code`. Printing it shows
+#'   `message`, `call`, `error_code` and `status_code`. Printing it shows
 #'   `CyteType API Error: <message>`.
 #' @examples
 #' error <- cytetype_api_error(
@@ -21,7 +24,8 @@
 #'     "This report has been deleted by the owner"
 #'   ),
 #'   call = "api",
-#'   error_code = "REPORT_DELETED"
+#'   error_code = "REPORT_DELETED",
+#'   status_code = 410L
 #' )
 #' print(error)
 #'
@@ -31,9 +35,15 @@
 #'   cytetype_api_error = function(e) e$error_code
 #' )
 #' @export
-cytetype_api_error <- function(message, call = NULL, error_code = NULL) {
+cytetype_api_error <- function(message, call = NULL, error_code = NULL,
+                               status_code = NULL) {
   structure(
-    list(message = message, call = call, error_code = error_code),
+    list(
+      message = message,
+      call = call,
+      error_code = error_code,
+      status_code = status_code
+    ),
     class = c("cytetype_api_error", "error", "condition")
   )
 }

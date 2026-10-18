@@ -278,8 +278,8 @@
           }
           condition <- .as_fetch_error(e, "Error while fetching job results")
           make_response(
-            # Network errors are retried while waiting; others end the wait.
-            if (identical(condition$call, "network")) "error" else "failed",
+            # Transient errors are retried while waiting; others end the wait.
+            if (.is_transient_error(condition)) "error" else "failed",
             message = conditionMessage(condition),
             raw = status_data,
             error_type = condition$call,
@@ -365,6 +365,16 @@
   )
 }
 
+# Errors worth retrying: no response (network), the rate limit, and server and
+# gateway errors (HTTP 500, 502, 503 and 504). Others, such as HTTP 410
+# (REPORT_DELETED) or 404, are permanent; authentication errors (HTTP 401 and
+# 403) are signalled before this is asked.
+.is_transient_error <- function(condition) {
+  identical(condition$call, "network") ||
+    identical(condition$error_code, "RATE_LIMIT_EXCEEDED") ||
+    isTRUE(condition$status_code %in% .CHUNK_UPLOAD_TRANSIENT_STATUSES)
+}
+
 # "network" when no response was received, "api" for other request errors.
 .error_type <- function(e) {
   if (inherits(e, "cytetype_api_error") && .is_string(e$call)) {
@@ -376,7 +386,7 @@
   "api"
 }
 
-# Seams for tests: the clock and the initial wait.
+# Seams for tests: the clock and the waits.
 .now <- function() Sys.time()
 .sleep <- function(seconds) Sys.sleep(seconds)
 
@@ -405,9 +415,13 @@
 
   # The timeout includes the initial wait.
   start_time <- .now()
+  # difftime() picks its units automatically; always compare seconds.
+  elapsed <- function() as.numeric(difftime(.now(), start_time, units = "secs"))
+  # A wait never runs past the deadline.
+  capped <- function(seconds) max(0, min(seconds, timeout - elapsed()))
 
   log_info("CyteType job (id: {job_id}) submitted. Polling for results...")
-  .sleep(5)
+  .sleep(capped(5))
 
   report_url <- .url_path(api_url, "report", job_id)
 
@@ -433,10 +447,10 @@
 
   # Main polling loop
   repeat {
-    # difftime() picks its units automatically; always compare seconds.
-    elapsed <- as.numeric(difftime(.now(), start_time, units = "secs"))
-
-    if (elapsed > timeout) {
+    # The deadline is checked only before each request. A request that starts
+    # in time and finds the job completed returns its results even if it ends
+    # slightly after the deadline: a finished result is better than a timeout.
+    if (elapsed() >= timeout) {
       cat("\n")
       log_info("Report: {report_url}")
       stop(.new_timeout_error(job_id, timeout))
@@ -503,9 +517,9 @@
              "pending" = {
                log_debug("Job {job_id} status: {status}. Waiting {poll_interval}s...")
                if (show_progress && length(current_cluster_status) > 0){
-                 .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
+                 .sleep_with_spinner(capped(poll_interval), current_cluster_status, show_progress)
                } else {
-                 .sleep(poll_interval)
+                 .sleep(capped(poll_interval))
                }
                last_cluster_status <- current_cluster_status
              },
@@ -519,7 +533,7 @@
                  stop(paste0("Job '", job_id, "' not found after ", consecutive_not_found,
                              " attempts. Verify the job_id is correct."))
                }
-               .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
+               .sleep_with_spinner(capped(poll_interval), current_cluster_status, show_progress)
                last_cluster_status <- current_cluster_status
              },
 
@@ -534,7 +548,7 @@
                  } else {
                    log_debug("Network error for {job_id} (attempt {consecutive_network_errors}): {error_msg}. Retrying...")
                  }
-                 .sleep_with_spinner(min(poll_interval, 5), current_cluster_status, show_progress)
+                 .sleep_with_spinner(capped(min(poll_interval, 5)), current_cluster_status, show_progress)
                } else {
                  consecutive_errors <- consecutive_errors + 1
                  log_warn("{error_msg} (attempt {consecutive_errors}/{max_consecutive_errors} for job {job_id})")
@@ -547,10 +561,11 @@
                        .results_hint(job_id), "."
                      ),
                      call = status_response$error_type %||% "api",
-                     error_code = status_response$condition$error_code
+                     error_code = status_response$condition$error_code,
+                     status_code = status_response$condition$status_code
                    ))
                  }
-                 .sleep_with_spinner(poll_interval, current_cluster_status, show_progress)
+                 .sleep_with_spinner(capped(poll_interval), current_cluster_status, show_progress)
                }
              },
 
@@ -576,7 +591,7 @@
         if (grepl("Network error", error_msg)) {
           log_debug("Network error for {job_id}: {error_msg}. Retrying...")
           retry_interval <- min(poll_interval, 5)
-          .sleep_with_spinner(retry_interval,current_cluster_status,show_progress)
+          .sleep_with_spinner(capped(retry_interval),current_cluster_status,show_progress)
         } else {
           cat("\n")
           stop(e)
@@ -589,10 +604,12 @@
   }
 }
 
-# Helper for sleeping with spinner animation
+# Helper for sleeping with spinner animation. The spinner moves every half
+# second; the last step is shorter when the wait was cut to the time left
+# before the deadline, so the whole `duration` is slept.
 .sleep_with_spinner <- function(duration,cluster_status,show_progress = TRUE) {
-  for (i in seq_len(duration * 2)) {
-    Sys.sleep(0.5)
+  for (i in seq_len(ceiling(duration * 2))) {
+    .sleep(min(0.5, duration - (i - 1) / 2))
     if (show_progress){
       .display_cluster_status_cli(cluster_status, is_final=FALSE, spinner_frame=i)
     }

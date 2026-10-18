@@ -6,7 +6,8 @@
   vars_h5    = 50 * 1024 * 1024 * 1024   # 50 GB
 )
 
-# Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway)
+# Chunked upload retry: delays (sec) after 1st, 2nd, 3rd failure; status codes treated as transient (incl. network/gateway).
+# The same statuses are retried while waiting for the results of a completed job.
 .CHUNK_UPLOAD_BACKOFF_SECS <- c(1L, 5L, 20L)
 .CHUNK_UPLOAD_TRANSIENT_STATUSES <- c(500L, 502L, 503L, 504L)
 
@@ -28,7 +29,8 @@
 # GET /status/{job_id} or /results/{job_id}. Returns list(status_code, data)
 # for 2xx responses and 404. Every other failure is signalled once, with one
 # message: cytetype_auth_error for HTTP 401 and 403, cytetype_api_error
-# (carrying the server's error_code when it sent one) otherwise.
+# (carrying the server's error_code when it sent one) otherwise. Both carry
+# the HTTP status as status_code when the server answered with an error.
 .api_response_helper <- function(job_id, api_url, req_item, auth_token = NULL) {
 
   req_api_url <- .url_path(api_url, req_item, job_id)
@@ -62,14 +64,16 @@
              log_debug("Authentication failed for job {job_id}")
              .stop_authentication(
                "Authentication failed: Invalid or expired auth token",
-               "INVALID_TOKEN"
+               "INVALID_TOKEN",
+               status_code = status_code
              )
            },
            "403" = {
              log_debug("Authorization failed for job {job_id}")
              .stop_authentication(
                "Authorization failed: Access denied",
-               "ACCESS_DENIED"
+               "ACCESS_DENIED",
+               status_code = status_code
              )
            }
     )
@@ -81,7 +85,8 @@
         stop(cytetype_api_error(
           message = .rate_limit_message(parsed$message),
           call = "api",
-          error_code = "RATE_LIMIT_EXCEEDED"
+          error_code = "RATE_LIMIT_EXCEEDED",
+          status_code = status_code
         ))
       }
       detail <- if (!is.null(parsed)) {
@@ -93,7 +98,8 @@
       stop(cytetype_api_error(
         message = paste0(context, ": HTTP ", status_code, " ", detail),
         call = "api",
-        error_code = parsed$error_code
+        error_code = parsed$error_code,
+        status_code = status_code
       ))
     }
 

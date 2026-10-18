@@ -221,7 +221,34 @@ test_that("a failed results request is a cytetype_api_error with the server's co
     "Error while fetching job results: HTTP 500 [INTERNAL_ERROR] An unexpected error occurred: disk full"
   )
   expect_identical(error$error_code, "INTERNAL_ERROR")
+  expect_identical(error$status_code, 500L)
   expect_false(file.exists("cytetypeR_results_job-1.json"))
+})
+
+test_that("GetResults(job_id) does not wait out a transient results error", {
+  local_temp_workdir()
+  requests <- character()
+  httr2::local_mocked_responses(function(req) {
+    requests <<- c(requests, req$url)
+    if (grepl("/status/", req$url)) {
+      return(json_response(200L, list(jobStatus = "completed")))
+    }
+    json_response(503L, list(detail = list(
+      error_code = "HTTP_ERROR",
+      message = "Service unavailable"
+    )))
+  })
+
+  expect_error(
+    GetResults(job_id = "job-1", api_url = "https://api.example.com", auth_token = "tok"),
+    "^Error while fetching job results: HTTP 503 \\[HTTP_ERROR\\] Service unavailable$",
+    class = "cytetype_api_error"
+  )
+  # One status request and one results request, as before.
+  expect_identical(
+    requests,
+    c("https://api.example.com/status/job-1", "https://api.example.com/results/job-1")
+  )
 })
 
 test_that("a connection failure is a network cytetype_api_error with one prefix", {

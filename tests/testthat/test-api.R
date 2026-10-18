@@ -335,3 +335,63 @@ test_that("cytetype_api_error carries an optional error code", {
   expect_null(conditionCall(error))
   expect_identical(error$call, "api")
 })
+
+test_that(".api_response_helper records the HTTP status of error responses", {
+  status_error <- function(response, req_item = "results") {
+    httr2::local_mocked_responses(function(req) response)
+    tryCatch(
+      CyteTypeR:::.api_response_helper("job-1", "https://api.example.com", req_item, "tok"),
+      error = identity
+    )
+  }
+
+  unavailable <- status_error(body_response(
+    503L, '{"detail": {"error_code": "HTTP_ERROR", "message": "Service unavailable"}}'
+  ))
+  expect_s3_class(unavailable, "cytetype_api_error")
+  expect_identical(unavailable$status_code, 503L)
+  expect_identical(unavailable$error_code, "HTTP_ERROR")
+
+  deleted <- status_error(body_response(
+    410L, '{"detail": {"error_code": "REPORT_DELETED", "message": "This report has been deleted by the owner"}}'
+  ), req_item = "status")
+  expect_identical(deleted$status_code, 410L)
+  expect_identical(deleted$error_code, "REPORT_DELETED")
+
+  rate_limited <- status_error(body_response(
+    429L, '{"detail": {"error_code": "RATE_LIMIT_EXCEEDED", "message": "Hourly limit reached (5/5)."}}'
+  ))
+  expect_identical(rate_limited$status_code, 429L)
+  expect_identical(rate_limited$error_code, "RATE_LIMIT_EXCEEDED")
+
+  gateway <- status_error(httr2::response(
+    status_code = 502L,
+    headers = list("Content-Type" = "text/html"),
+    body = charToRaw("<html>Bad gateway</html>")
+  ))
+  expect_identical(gateway$status_code, 502L)
+  expect_null(gateway$error_code)
+
+  for (code in c(401L, 403L)) {
+    auth <- status_error(body_response(code, '{"detail": "Invalid API token"}'))
+    expect_s3_class(auth, "cytetype_auth_error")
+    expect_identical(auth$status_code, code)
+  }
+})
+
+test_that("errors without a response have no HTTP status", {
+  httr2::local_mocked_responses(function(req) {
+    stop(structure(
+      list(message = "Could not connect to server", call = NULL),
+      class = c("httr2_failure", "httr2_error", "error", "condition")
+    ))
+  })
+
+  error <- tryCatch(
+    CyteTypeR:::.api_response_helper("job-1", "https://api.example.com", "results"),
+    error = identity
+  )
+
+  expect_identical(error$call, "network")
+  expect_null(error$status_code)
+})

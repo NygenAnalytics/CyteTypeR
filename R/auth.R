@@ -296,18 +296,24 @@
   credentials$dashboardUrl
 }
 
-.new_authentication_error <- function(message, error_code) {
+.new_authentication_error <- function(message, error_code, status_code = NULL) {
   structure(
-    list(message = message, call = NULL, error_code = error_code),
+    list(
+      message = message,
+      call = NULL,
+      error_code = error_code,
+      status_code = status_code
+    ),
     class = c("cytetype_auth_error", "cytetype_api_error", "error", "condition")
   )
 }
 
 .stop_authentication <- function(
   message,
-  error_code = "AUTHENTICATION_REQUIRED"
+  error_code = "AUTHENTICATION_REQUIRED",
+  status_code = NULL
 ) {
-  stop(.new_authentication_error(message, error_code))
+  stop(.new_authentication_error(message, error_code, status_code))
 }
 
 .resolve_auth_token <- function(api_url, auth_token = NULL) {

@@ -85,7 +85,10 @@ configuration.}
 \item{visibility}{Optional character. Who can view the report: \code{"private"},
 \code{"org"} (your organization; needs an organization API key) or \code{"public"}
 (anyone with the link). Default is \code{NULL}, which uses the server default
-(\code{"private"}).}
+(\code{"private"}). With \code{"org"} and an API key that looks like a personal key
+(it starts with \code{cyt_p_}), a warning is logged before the files are
+uploaded and the run continues; the server checks the key when the job is
+submitted and rejects personal keys.}
 }
 \value{
 The Seurat object \code{obj} with the results added. Assign it, for
@@ -137,11 +140,13 @@ jobs when the stored fields are empty. \code{supportingMarkers} and
 
 While waiting, network errors are retried until \code{timeout_seconds} is
 reached. Other errors while checking the job stop the run after five in a
-row, and an error while fetching the results of a completed job stops it at
-once; both signal a \code{\link[=cytetype_api_error]{cytetype_api_error()}} condition. If the run stops or is
-interrupted, the job keeps running on the server: retrieve its results with
-\code{GetResults(job_id = "<job_id>")}, using the job ID printed when the job was
-submitted.
+row. When the results of a completed job cannot be fetched, the rate limit
+and server errors (HTTP 500, 502, 503 and 504) are retried in the same way,
+and other errors, such as a deleted report (HTTP 410), stop the run at once.
+These errors signal a \code{\link[=cytetype_api_error]{cytetype_api_error()}} condition. If the run stops or
+is interrupted, the job keeps running on the server: retrieve its results
+with \code{GetResults(job_id = "<job_id>")}, using the job ID printed when the job
+was submitted.
 }
 \examples{
 \dontrun{
