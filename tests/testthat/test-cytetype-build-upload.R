@@ -373,7 +373,9 @@ test_that("org visibility with a personal-looking key warns once and continues",
 
     warned <- .org_warnings(run$log)
     expect_length(warned, 1L)
-    expect_match(run$log[warned], "^WARN ", info = label)
+    # A WARN-level line; on GitHub Actions logger formats it as a
+    # "::warning title=WARN::" annotation instead of "WARN [...]".
+    expect_match(run$log[warned], "WARN", fixed = TRUE, info = label)
     # Logged before the upload starts.
     uploading <- which(grepl("Uploading obs.duckdb", run$log, fixed = TRUE))
     expect_true(length(uploading) == 1L && warned < uploading, info = label)
