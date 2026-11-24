@@ -259,12 +259,47 @@
   on.exit(unlink(c(tmp_file, paste0(tmp_file, ".wal")), force = TRUE), add = TRUE)
   # The connection closes inside this call, before the spill directory is removed.
   .write_duckdb_table(tmp_file, df, table_name, config)
-  # A WAL left by the old file would be replayed into the new one.
-  unlink(paste0(out_file, ".wal"), force = TRUE)
-  if (!file.rename(tmp_file, out_file)) {
-    stop("Could not replace `", out_file, "` with the newly written obs.duckdb.")
-  }
+  .replace_obs_file(tmp_file, out_file)
   invisible(out_file)
+}
+
+# Moves new_file to dest. file.rename() may fail to replace an existing file on
+# Windows, so the previous file and its WAL are first moved aside, which also
+# keeps that WAL from being replayed into the new file. They are moved back if
+# new_file cannot be put in place, and deleted once it is.
+.replace_obs_file <- function(new_file, dest) {
+  backup <- file.path(
+    dirname(dest),
+    paste0(".", basename(dest), ".", basename(tempfile("")), ".bak")
+  )
+  moved <- character()
+  restore <- function() {
+    all(vapply(moved, function(suffix) {
+      file.rename(paste0(backup, suffix), paste0(dest, suffix))
+    }, logical(1)))
+  }
+  fail <- function(message) {
+    if (!restore()) {
+      message <- paste0(message, " The previous file is left at `", backup, "`.")
+    }
+    stop(message, call. = FALSE)
+  }
+  for (suffix in c("", ".wal")) {
+    if (file.exists(paste0(dest, suffix))) {
+      if (!file.rename(paste0(dest, suffix), paste0(backup, suffix))) {
+        fail(paste0("Could not move `", dest, suffix, "` aside to replace it."))
+      }
+      moved <- c(moved, suffix)
+    }
+  }
+  if (!file.rename(new_file, dest)) {
+    fail(paste0(
+      "Could not replace `", dest, "` with the newly written obs.duckdb; ",
+      "the previous file was kept."
+    ))
+  }
+  unlink(paste0(backup, moved), force = TRUE)
+  invisible(dest)
 }
 
 .write_duckdb_table <- function(path, df, table_name, config) {
@@ -279,6 +314,14 @@
 .obs_duckdb_storage_compatibility <- "v1.4.0"
 
 .is_duckdb_database <- function(path) {
+  # Opening a named pipe or device blocks until data arrives. file.info() cannot
+  # tell those from regular files, but they report a size of 0, and a DuckDB
+  # database is never smaller than its 12-byte header, so only read files that
+  # are at least that large.
+  info <- file.info(path, extra_cols = FALSE)
+  if (is.na(info$size) || isTRUE(info$isdir) || info$size < 12) {
+    return(FALSE)
+  }
   con <- file(path, "rb")
   on.exit(close(con))
   header <- readBin(con, "raw", 12L)
