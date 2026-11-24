@@ -203,6 +203,12 @@
   if (!grepl("^[A-Za-z_][A-Za-z0-9_]*$", table_name)) {
     stop("Invalid table_name. Use letters, numbers, and underscores only.")
   }
+  if (file.exists(out_file) && !.is_duckdb_database(out_file)) {
+    stop(
+      "`", out_file, "` exists and is not a DuckDB database. ",
+      "Pass a new path or the path of an earlier obs.duckdb artifact."
+    )
+  }
 
   df <- as.data.frame(obs_df)
 
@@ -222,8 +228,11 @@
 
   cli::cli_progress_step("Writing obs.duckdb")
 
-  if (file.exists(out_file)) file.remove(out_file)
-  config <- list(threads = as.character(threads), memory_limit = memory_limit)
+  config <- list(
+    threads = as.character(threads),
+    memory_limit = memory_limit,
+    storage_compatibility_version = .obs_duckdb_storage_compatibility
+  )
   if (is.null(temp_directory)) {
     # DuckDB spills to temp_directory when memory_limit is exceeded. A fixed
     # path relative to the working directory is shared between runs and never
@@ -239,11 +248,84 @@
   if (!is.null(temp_directory)) {
     config$temp_directory <- temp_directory
   }
-  con <- duckdb::dbConnect(.duckdb_driver(), out_file, config = config)
-  # Disconnect before the spill directory is removed.
-  on.exit(duckdb::dbDisconnect(con, shutdown = TRUE), add = TRUE, after = FALSE)
-  duckdb::dbWriteTable(con, table_name, df, overwrite = TRUE)
+  # DuckDB fixes the storage format when it creates a file, so a file left by an
+  # earlier run would keep its format. Write a new file next to the destination
+  # and replace the old one only once the write has succeeded, so a failed
+  # write keeps the previous file.
+  tmp_file <- file.path(
+    dirname(out_file),
+    paste0(".", basename(out_file), ".", basename(tempfile("")), ".tmp")
+  )
+  on.exit(unlink(c(tmp_file, paste0(tmp_file, ".wal")), force = TRUE), add = TRUE)
+  # The connection closes inside this call, before the spill directory is removed.
+  .write_duckdb_table(tmp_file, df, table_name, config)
+  .replace_obs_file(tmp_file, out_file)
   invisible(out_file)
+}
+
+# Moves new_file to dest. file.rename() may fail to replace an existing file on
+# Windows, so the previous file and its WAL are first moved aside, which also
+# keeps that WAL from being replayed into the new file. They are moved back if
+# new_file cannot be put in place, and deleted once it is.
+.replace_obs_file <- function(new_file, dest) {
+  backup <- file.path(
+    dirname(dest),
+    paste0(".", basename(dest), ".", basename(tempfile("")), ".bak")
+  )
+  moved <- character()
+  restore <- function() {
+    all(vapply(moved, function(suffix) {
+      file.rename(paste0(backup, suffix), paste0(dest, suffix))
+    }, logical(1)))
+  }
+  fail <- function(message) {
+    if (!restore()) {
+      message <- paste0(message, " The previous file is left at `", backup, "`.")
+    }
+    stop(message, call. = FALSE)
+  }
+  for (suffix in c("", ".wal")) {
+    if (file.exists(paste0(dest, suffix))) {
+      if (!file.rename(paste0(dest, suffix), paste0(backup, suffix))) {
+        fail(paste0("Could not move `", dest, suffix, "` aside to replace it."))
+      }
+      moved <- c(moved, suffix)
+    }
+  }
+  if (!file.rename(new_file, dest)) {
+    fail(paste0(
+      "Could not replace `", dest, "` with the newly written obs.duckdb; ",
+      "the previous file was kept."
+    ))
+  }
+  unlink(paste0(backup, moved), force = TRUE)
+  invisible(dest)
+}
+
+.write_duckdb_table <- function(path, df, table_name, config) {
+  con <- duckdb::dbConnect(.duckdb_driver(), path, config = config)
+  on.exit(duckdb::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  duckdb::dbWriteTable(con, table_name, df, overwrite = TRUE)
+}
+
+# The server reads obs.duckdb with its own DuckDB release. Without this setting,
+# DuckDB 2.0 writes a storage format that DuckDB 1.x cannot open; v1.4.0 is
+# readable by every DuckDB release from 1.4, the oldest this package supports.
+.obs_duckdb_storage_compatibility <- "v1.4.0"
+
+.is_duckdb_database <- function(path) {
+  # Opening a named pipe or device blocks until data arrives. file.info() cannot
+  # tell those from regular files, but they report a size of 0, and a DuckDB
+  # database is never smaller than its 12-byte header, so only read files that
+  # are at least that large.
+  info <- file.info(path, extra_cols = FALSE)
+  if (is.na(info$size) || isTRUE(info$isdir) || info$size < 12) {
+    return(FALSE)
+  }
+  con <- file(path, "rb")
+  on.exit(close(con))
+  header <- readBin(con, "raw", 12L)
+  length(header) == 12L && identical(header[9:12], charToRaw("DUCK"))
 }
 
 # Writing obs.duckdb needs no extensions or secrets, so keep newer duckdb

@@ -24,7 +24,7 @@ Imports:
     cli,
     crayon,
     dplyr,
-    duckdb,
+    duckdb (>= 1.4.0),
     httpuv,
     httr2,
     jsonlite,
@@ -40,6 +40,7 @@ Imports:
     utils,
     withr
 Suggests:
+    DBI,
     future,
     furrr,
     knitr,

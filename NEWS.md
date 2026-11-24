@@ -1,3 +1,10 @@
+# CyteTypeR (development version)
+
+## Artifacts
+
+* `obs.duckdb` is written in a storage format that DuckDB 1.4 and later can read. With duckdb 2.0 from CRAN it was written in a format that the CyteType server's DuckDB 1.x could not open, so the uploaded cell metadata was ignored. `duckdb` 1.4.0 or newer is now required.
+* A failed write no longer deletes an existing `obs.duckdb`: the new file replaces it only once it is complete. An existing file at `obs_duckdb_path` that is not a DuckDB database raises an error and is left in place.
+
 # CyteTypeR 0.6.0
 
 ## Results
