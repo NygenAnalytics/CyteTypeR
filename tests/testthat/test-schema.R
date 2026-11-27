@@ -112,3 +112,32 @@ test_that(".prepare_query_for_json keeps a top-level visibility", {
   out <- CyteTypeR:::.prepare_query_for_json(list(input_data = input_data, llm_configs = NULL, visibility = "public"))
   expect_identical(out$visibility, "public")
 })
+
+test_that(".prepare_query_for_json serializes single targetAgents as a JSON array", {
+  single <- CyteTypeR:::LLMModelConfig(
+    provider = "openai", name = "gpt-5", apiKey = "k",
+    targetAgents = "contextualizer"
+  )
+  multi <- CyteTypeR:::LLMModelConfig(
+    provider = "anthropic", name = "claude", apiKey = "k",
+    targetAgents = c("annotator", "reviewer")
+  )
+  empty <- CyteTypeR:::LLMModelConfig(
+    provider = "openai", name = "gpt-5", apiKey = "k"
+  )
+  input_data <- list(
+    studyInfo = "x", infoTags = list(), clusterLabels = list(),
+    clusterMetadata = list(), markerGenes = list(),
+    visualizationData = NULL, expressionData = list(), nParallelClusters = 2L
+  )
+  out <- CyteTypeR:::.prepare_query_for_json(list(
+    input_data = input_data,
+    llm_configs = list(single, multi, empty)
+  ))
+
+  json_str <- as.character(jsonlite::toJSON(out, auto_unbox = TRUE))
+  parsed <- jsonlite::fromJSON(json_str, simplifyVector = FALSE)
+  expect_identical(parsed$llm_configs[[1]]$targetAgents, list("contextualizer"))
+  expect_identical(parsed$llm_configs[[2]]$targetAgents, list("annotator", "reviewer"))
+  expect_identical(parsed$llm_configs[[3]]$targetAgents, list())
+})

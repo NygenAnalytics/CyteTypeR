@@ -102,7 +102,11 @@ LLMModelConfig <- function(provider,
     query_list$llm_configs <- lapply(query_list$llm_configs, function(config) {
       obj_list <- unclass(config)
       # Remove NULL values
-      obj_list[!sapply(obj_list, is.null)]
+      obj_list <- obj_list[!sapply(obj_list, is.null)]
+      if (!is.null(obj_list$targetAgents)) {
+        obj_list$targetAgents <- as.list(obj_list$targetAgents)
+      }
+      obj_list
     })
   }
 
